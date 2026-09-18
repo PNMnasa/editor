@@ -22,7 +22,7 @@ jobs:
             artifact: editor-linux
           - os: windows-latest
             binary: editor.exe
-            artifact: editor-windows
+            artifact: editor-windows.exe
           - os: macos-latest
             binary: editor
             artifact: editor-macos
@@ -37,11 +37,14 @@ jobs:
       - name: Build release
         run: cargo build --release
 
+      - name: Rename binary
+        run: cp target/release/${{ matrix.binary }} ${{ matrix.artifact }}
+
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: target/release/${{ matrix.binary }}
+          path: ${{ matrix.artifact }}
 
   release:
     name: Publish release
