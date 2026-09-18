@@ -19,8 +19,7 @@ Hướng dẫn cho agent khi làm việc trong dự án `editor`.
 
 ## Cấu trúc & gotcha
 
-- Binary đơn tại `src/main.rs` (hiện là `hello-world` mặc định) — file module con chỉ được biên dịch khi khai báo `mod` trong `main.rs`.
-- `src/terminal_tools.rs` và `src/terminal_ui_tools.rs` chưa được khai báo `mod` nên không nằm trong build (dead file) — cứ để nguyên, không đụng tới.
+- Binary đơn tại `src/main.rs` (hiện là explorer TUI cơ bản); `src/terminal_tools.rs` và `src/terminal_ui_tools.rs` được khai báo `mod` trong `main.rs` nên nằm trong build.
 - Nguồn CI là `.github/workflows/ci.yml` — chạy đúng 4 bước trong quy ước dưới cho Windows, Linux, macOS.
 
 ## Quy ước quan trọng
@@ -31,3 +30,8 @@ Hướng dẫn cho agent khi làm việc trong dự án `editor`.
 - Tuân thủ `CONTRIBUTING.md` khi đóng góp.
 - Ghi thay đổi đáng chú ý vào `CHANGELOG.md` (đúng định dạng Keep a Changelog).
 - Tài liệu viết tiếng Việt; mã nguồn, tên biến/hàm dùng tiếng Anh.
+
+## Release nhanh
+
+- Một lệnh cho toàn bộ pipeline: `.\scripts\release.ps1 "message commit"` — tự chạy 4 bước CI, commit sạch, push `develop`, merge `main`, tạo tag (tự tăng patch nếu không truyền `-Version`), push tag (kích hoạt release workflow), rồi quay lại `develop`.
+- Tùy chọn: `-SkipChecks` (bỏ qua CI bước); `-Version v0.2.0` (gán tag cụ thể).

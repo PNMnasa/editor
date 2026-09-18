@@ -13,3 +13,5 @@ dự án tuân thủ [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Tài liệu: `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CHANGELOG.md`
 - Giấy phép GPL-3.0
 - CI workflow (GitHub Actions) cho Windows, Linux, macOS
+- Explorer TUI cơ bản tại `src/main.rs`
+- Script release nhanh `scripts/release.ps1`: commit, push, merge `main`, tạo tag, quay lại `develop` trong một lệnh
