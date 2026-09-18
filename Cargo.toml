@@ -1,0 +1,11 @@
+[package]
+name = "editor"
+version = "0.1.0"
+edition = "2024"
+description = "Editor cho mọi thứ — hỗ trợ code, chỉnh sửa ảnh và các định dạng phổ biến khác"
+license = "GPL-3.0"
+authors = ["PNMnasa <maingocphong216@gmail.com>"]
+rust-version = "1.85"
+
+[dependencies]
+crossterm = "0.29.0"
