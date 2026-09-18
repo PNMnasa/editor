@@ -1,5 +1,5 @@
 use std::{
-    env, fs,
+    env,
     io::{self, Write},
     path::{Path, PathBuf},
     time::Duration,
@@ -11,58 +11,17 @@ use crossterm::{
 };
 
 #[expect(dead_code)]
+mod dir_info;
+#[expect(dead_code)]
 mod terminal_tools;
 #[expect(dead_code)]
 mod terminal_ui_tools;
 
+use dir_info::{Entry, format_size, list_entries};
 use terminal_tools::{
     clear, enter_alt_screen, hide_cursor, leave_alt_screen, set_title, show_cursor,
 };
 use terminal_ui_tools::{bg_color, clear_color, fg_color, put_text};
-
-struct Entry {
-    name: String,
-    is_dir: bool,
-    size: u64,
-}
-
-fn list_entries(dir: &Path) -> io::Result<Vec<Entry>> {
-    let mut entries = Vec::new();
-    for item in fs::read_dir(dir)? {
-        let item = item?;
-        let file_type = item.file_type()?;
-        let name = item.file_name().to_string_lossy().into_owned();
-        let size = if file_type.is_file() {
-            item.metadata()?.len()
-        } else {
-            0
-        };
-        entries.push(Entry {
-            name,
-            is_dir: file_type.is_dir(),
-            size,
-        });
-    }
-    entries.sort_by(|a, b| {
-        b.is_dir
-            .cmp(&a.is_dir)
-            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-    });
-    Ok(entries)
-}
-
-fn format_size(bytes: u64) -> String {
-    const KB: u64 = 1024;
-    if bytes >= KB * KB * KB {
-        format!("{:.1}G", bytes as f64 / (KB * KB * KB) as f64)
-    } else if bytes >= KB * KB {
-        format!("{:.1}M", bytes as f64 / (KB * KB) as f64)
-    } else if bytes >= KB {
-        format!("{:.1}K", bytes as f64 / KB as f64)
-    } else {
-        format!("{bytes}B")
-    }
-}
 
 fn clip(text: &str, max: usize) -> String {
     if max == 0 {
@@ -198,12 +157,17 @@ fn main() -> io::Result<()> {
                                 selected += 1;
                             }
                         }
-                        KeyCode::Char('r') => {
-                            entries = list_entries(&dir)?;
-                            selected = 0;
-                            top = 0;
-                            message.clear();
-                        }
+                        KeyCode::Char('r') => match list_entries(&dir) {
+                            Ok(new_entries) => {
+                                entries = new_entries;
+                                selected = 0;
+                                top = 0;
+                                message.clear();
+                            }
+                            Err(err) => {
+                                message = format!("Không thể đọc `{}`: {err}", dir.display());
+                            }
+                        },
                         KeyCode::Enter => {
                             let Some(entry) = entries.get(selected) else {
                                 continue;
@@ -211,11 +175,18 @@ fn main() -> io::Result<()> {
                             if entry.is_dir {
                                 let mut next = dir.clone();
                                 next.push(&entry.name);
-                                entries = list_entries(&next)?;
-                                dir = next;
-                                selected = 0;
-                                top = 0;
-                                message.clear();
+                                match list_entries(&next) {
+                                    Ok(new_entries) => {
+                                        entries = new_entries;
+                                        dir = next;
+                                        selected = 0;
+                                        top = 0;
+                                        message.clear();
+                                    }
+                                    Err(err) => {
+                                        message = format!("Không thể mở `{}`: {err}", entry.name);
+                                    }
+                                }
                             } else {
                                 message = format!("`{}` là file — chưa hỗ trợ mở", entry.name);
                             }

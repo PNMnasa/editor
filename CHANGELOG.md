@@ -14,4 +14,5 @@ dự án tuân thủ [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Giấy phép GPL-3.0
 - CI workflow (GitHub Actions) cho Windows, Linux, macOS
 - Explorer TUI cơ bản tại `src/main.rs`
+- Module `src/dir_info.rs`: liệt kê file/folder kèm dung lượng và số lượng đệ quy, tổng kích thước, giới hạn `max_entries`/`max_depth`, hàm `format_size`
 - Script release nhanh `scripts/release.ps1`: commit, push, merge `main`, tạo tag, quay lại `develop` trong một lệnh
