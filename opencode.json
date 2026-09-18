@@ -1,0 +1,16 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": ["AGENTS.md"],
+  "permission": {
+    "bash": {
+      "git *": "allow",
+      "cargo build*": "allow",
+      "cargo check": "allow",
+      "cargo test*": "allow",
+      "cargo fmt*": "allow",
+      "cargo clippy*": "allow",
+      "cargo run*": "allow",
+      "*": "ask"
+    }
+  }
+}

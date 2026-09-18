@@ -1,0 +1,8 @@
+{
+  "explorer.fileNesting.enabled": true,
+  "explorer.fileNesting.expand": false,
+  "explorer.fileNesting.patterns": {
+    "Cargo.toml": "Cargo.lock",
+    "README.md": "LICENSE, SECURITY.md, CONTRIBUTING.md, CHANGELOG.md, .gitignore, AGENTS.md, opencode.json"
+  }
+}
