@@ -7,6 +7,10 @@ dự án tuân thủ [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Explorer hiện danh sách file/folder ngay lập tức rồi tính kích thước/số lượng folder ở luồng nền (`dir_info::list_basic`) và ghi đè khi xong, không còn bị delay khi mở thư mục lớn
+
 ### Added
 
 - Khung dự án ban đầu: cấu trúc `src/`, `Cargo.toml`, `docs/INSTALL.md`

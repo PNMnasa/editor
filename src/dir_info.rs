@@ -3,6 +3,10 @@
 //! thước. Module thuần logic (không phụ thuộc terminal/UI) nên có thể dùng
 //! riêng cho cả TUI lẫn GUI.
 //!
+//! Với thư mục lớn, dùng `list_basic` để vẽ danh sách ngay rồi chạy
+//! `list_entries` (hoặc `dir_stats`) ở luồng nền để điền kích thước sau —
+//! tránh làm delay giao diện.
+//!
 //! Ví dụ:
 //!
 //! ```ignore
@@ -71,6 +75,15 @@ pub struct Entry {
     pub dirs: u64,
 }
 
+/// Liệt kê nhanh nội dung `dir`: không tính thống kê đệ quy (folder được trả
+/// về với `size/files/dirs = 0`). Dùng để vẽ danh sách trước, sau đó tính
+/// kích thước ở luồng nền rồi ghi đè.
+pub fn list_basic(dir: &Path) -> io::Result<Vec<Entry>> {
+    let mut entries = collect_basic(dir, &ScanOptions::default())?;
+    sort_entries(&mut entries);
+    Ok(entries)
+}
+
 /// Liệt kê nội dung `dir` kèm thống kê đệ quy cho từng folder, dùng tùy
 /// chọn mặc định.
 pub fn list_entries(dir: &Path) -> io::Result<Vec<Entry>> {
@@ -81,8 +94,25 @@ pub fn list_entries(dir: &Path) -> io::Result<Vec<Entry>> {
 ///
 /// Kết quả được sắp xếp folder trước (theo tên không phân biệt hoa thường),
 /// sau đó mới tới file. Mục không đọc được sẽ bị bỏ qua; lỗi của `dir` được
-/// trả về nguyên vẹn.
+/// trả về nguyên vẹn. Nên dùng `list_basic` + luồng nền cho folder lớn.
 pub fn list_entries_with(dir: &Path, opts: &ScanOptions) -> io::Result<Vec<Entry>> {
+    let mut entries = collect_basic(dir, opts)?;
+    if opts.max_depth > 0 {
+        for entry in &mut entries {
+            if entry.is_dir {
+                if let Ok(stats) = dir_stats_at(&dir.join(&entry.name), opts.max_depth - 1) {
+                    entry.size = stats.total_size;
+                    entry.files = stats.files;
+                    entry.dirs = stats.dirs;
+                }
+            }
+        }
+    }
+    sort_entries(&mut entries);
+    Ok(entries)
+}
+
+fn collect_basic(dir: &Path, opts: &ScanOptions) -> io::Result<Vec<Entry>> {
     let mut entries = Vec::new();
     for item in fs::read_dir(dir)? {
         if opts.max_entries != 0 && entries.len() >= opts.max_entries {
@@ -96,33 +126,28 @@ pub fn list_entries_with(dir: &Path, opts: &ScanOptions) -> io::Result<Vec<Entry
             continue;
         };
         let is_dir = file_type.is_dir();
-        let (size, files, dirs) = if is_dir {
-            if opts.max_depth == 0 {
-                (0, 0, 0)
-            } else {
-                match dir_stats_at(&item.path(), opts.max_depth - 1) {
-                    Ok(stats) => (stats.total_size, stats.files, stats.dirs),
-                    Err(_) => (0, 0, 0),
-                }
-            }
+        let size = if is_dir {
+            0
         } else {
-            let size = item.metadata().map(|meta| meta.len()).unwrap_or(0);
-            (size, 0, 0)
+            item.metadata().map(|meta| meta.len()).unwrap_or(0)
         };
         entries.push(Entry {
             name,
             is_dir,
             size,
-            files,
-            dirs,
+            files: 0,
+            dirs: 0,
         });
     }
+    Ok(entries)
+}
+
+fn sort_entries(entries: &mut [Entry]) {
     entries.sort_by(|a, b| {
         b.is_dir
             .cmp(&a.is_dir)
             .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
-    Ok(entries)
 }
 
 /// Tính thống kê đệ quy của `dir` với độ sâu mặc định.
@@ -218,6 +243,24 @@ mod tests {
         fs::write(root.join("dir1/f1.txt"), vec![b'x'; 10])?;
         fs::write(root.join("dir1/sub/f2.txt"), vec![b'x'; 7])?;
         fs::write(root.join("a.txt"), vec![b'y'; 3])?;
+        Ok(())
+    }
+
+    #[test]
+    fn list_basic_no_stats() -> io::Result<()> {
+        let root = temp_root("list_basic")?;
+        make_tree(&root)?;
+        let entries = list_basic(&root)?;
+        let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["dir1", "dir2", "a.txt"]);
+        assert!(
+            entries
+                .iter()
+                .filter(|e| e.is_dir)
+                .all(|e| e.size == 0 && e.files == 0 && e.dirs == 0)
+        );
+        assert_eq!(entries.last().map(|e| e.size), Some(3));
+        fs::remove_dir_all(&root)?;
         Ok(())
     }
 
