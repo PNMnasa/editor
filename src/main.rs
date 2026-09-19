@@ -17,12 +17,14 @@ use crossterm::{
 
 #[expect(dead_code)]
 mod dir_info;
+mod format_tools;
 #[expect(dead_code)]
 mod terminal_tools;
 #[expect(dead_code)]
 mod terminal_ui_tools;
 
-use dir_info::{Entry, format_size, list_basic, list_entries};
+use dir_info::{Entry, list_basic, list_entries};
+use format_tools::format_size;
 use terminal_tools::{
     clear, enter_alt_screen, hide_cursor, leave_alt_screen, set_title, show_cursor,
 };
