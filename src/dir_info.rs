@@ -3,6 +3,10 @@
 //! A pure logic module (no terminal/UI dependency), usable from both TUI and
 //! GUI.
 //!
+//! For large directories, use `list_basic` to draw the list right away, then
+//! run `list_entries` (or `dir_stats`) on a background thread to fill in sizes
+//! afterwards — avoids UI delay.
+//!
 //! Example:
 //!
 //! ```ignore
@@ -71,6 +75,15 @@ pub struct Entry {
     pub dirs: u64,
 }
 
+/// Quickly list the contents of `dir`: no recursive stats (directories come back
+/// with `size/files/dirs = 0`). Use it to draw the list first, then compute
+/// sizes on a background thread and overwrite.
+pub fn list_basic(dir: &Path) -> io::Result<Vec<Entry>> {
+    let mut entries = collect_basic(dir, &ScanOptions::default())?;
+    sort_entries(&mut entries);
+    Ok(entries)
+}
+
 /// List the contents of `dir` with recursive stats per directory, using the
 /// default options.
 pub fn list_entries(dir: &Path) -> io::Result<Vec<Entry>> {
@@ -80,9 +93,26 @@ pub fn list_entries(dir: &Path) -> io::Result<Vec<Entry>> {
 /// List the contents of `dir` with recursive stats per directory per `opts`.
 ///
 /// Results are sorted directories first (case-insensitive by name), then
-/// files. Unreadable entries are skipped; errors on `dir` itself are
-/// returned as-is.
+/// files. Unreadable entries are skipped; errors on `dir` itself are returned
+/// as-is. Prefer `list_basic` + a background thread for large directories.
 pub fn list_entries_with(dir: &Path, opts: &ScanOptions) -> io::Result<Vec<Entry>> {
+    let mut entries = collect_basic(dir, opts)?;
+    if opts.max_depth > 0 {
+        for entry in &mut entries {
+            if entry.is_dir {
+                if let Ok(stats) = dir_stats_at(&dir.join(&entry.name), opts.max_depth - 1) {
+                    entry.size = stats.total_size;
+                    entry.files = stats.files;
+                    entry.dirs = stats.dirs;
+                }
+            }
+        }
+    }
+    sort_entries(&mut entries);
+    Ok(entries)
+}
+
+fn collect_basic(dir: &Path, opts: &ScanOptions) -> io::Result<Vec<Entry>> {
     let mut entries = Vec::new();
     for item in fs::read_dir(dir)? {
         if opts.max_entries != 0 && entries.len() >= opts.max_entries {
@@ -96,33 +126,28 @@ pub fn list_entries_with(dir: &Path, opts: &ScanOptions) -> io::Result<Vec<Entry
             continue;
         };
         let is_dir = file_type.is_dir();
-        let (size, files, dirs) = if is_dir {
-            if opts.max_depth == 0 {
-                (0, 0, 0)
-            } else {
-                match dir_stats_at(&item.path(), opts.max_depth - 1) {
-                    Ok(stats) => (stats.total_size, stats.files, stats.dirs),
-                    Err(_) => (0, 0, 0),
-                }
-            }
+        let size = if is_dir {
+            0
         } else {
-            let size = item.metadata().map(|meta| meta.len()).unwrap_or(0);
-            (size, 0, 0)
+            item.metadata().map(|meta| meta.len()).unwrap_or(0)
         };
         entries.push(Entry {
             name,
             is_dir,
             size,
-            files,
-            dirs,
+            files: 0,
+            dirs: 0,
         });
     }
+    Ok(entries)
+}
+
+fn sort_entries(entries: &mut [Entry]) {
     entries.sort_by(|a, b| {
         b.is_dir
             .cmp(&a.is_dir)
             .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
-    Ok(entries)
 }
 
 /// Recursive stats of `dir` at the default depth.
@@ -218,6 +243,24 @@ mod tests {
         fs::write(root.join("dir1/f1.txt"), vec![b'x'; 10])?;
         fs::write(root.join("dir1/sub/f2.txt"), vec![b'x'; 7])?;
         fs::write(root.join("a.txt"), vec![b'y'; 3])?;
+        Ok(())
+    }
+
+    #[test]
+    fn list_basic_no_stats() -> io::Result<()> {
+        let root = temp_root("list_basic")?;
+        make_tree(&root)?;
+        let entries = list_basic(&root)?;
+        let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["dir1", "dir2", "a.txt"]);
+        assert!(
+            entries
+                .iter()
+                .filter(|e| e.is_dir)
+                .all(|e| e.size == 0 && e.files == 0 && e.dirs == 0)
+        );
+        assert_eq!(entries.last().map(|e| e.size), Some(3));
+        fs::remove_dir_all(&root)?;
         Ok(())
     }
 

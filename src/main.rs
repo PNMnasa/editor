@@ -2,6 +2,11 @@ use std::{
     env,
     io::{self, Write},
     path::{Path, PathBuf},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
+    thread,
     time::Duration,
 };
 
@@ -17,7 +22,7 @@ mod terminal_tools;
 #[expect(dead_code)]
 mod terminal_ui_tools;
 
-use dir_info::{Entry, format_size, list_entries};
+use dir_info::{Entry, format_size, list_basic, list_entries};
 use terminal_tools::{
     clear, enter_alt_screen, hide_cursor, leave_alt_screen, set_title, show_cursor,
 };
@@ -45,6 +50,60 @@ struct View<'a> {
     selected: usize,
     top: usize,
     message: &'a str,
+}
+
+/// Result of a background scan: starting generation, scanned directory and
+/// the fully enriched listing (`None` = could not be computed).
+type ScanResult = Option<(usize, PathBuf, Option<Vec<Entry>>)>;
+
+/// Background scan state: the list is drawn right away from `list_basic`,
+/// the background thread computes the full `list_entries` and overwrites
+struct NavState {
+    running_generation: Arc<AtomicUsize>,
+    result: Arc<Mutex<ScanResult>>,
+    computing: bool,
+}
+
+impl NavState {
+    fn new() -> Self {
+        Self {
+            running_generation: Arc::new(AtomicUsize::new(0)),
+            result: Arc::new(Mutex::new(None)),
+            computing: false,
+        }
+    }
+}
+
+/// Draw the `target` listing right away via `list_basic`, and move the
+/// (recursive) size computation to a background thread. The background
+/// result is applied only while the generation is still valid. Returns `true` if it succeeded.
+fn navigate(
+    target: &Path,
+    entries: &mut Vec<Entry>,
+    state: &mut NavState,
+    message: &mut String,
+) -> bool {
+    match list_basic(target) {
+        Ok(basic) => {
+            *entries = basic;
+            let generation = state.running_generation.fetch_add(1, Ordering::SeqCst) + 1;
+            let result = Arc::clone(&state.result);
+            let own = target.to_path_buf();
+            thread::spawn(move || {
+                let enriched = list_entries(&own).ok();
+                if let Ok(mut guard) = result.lock() {
+                    *guard = Some((generation, own, enriched));
+                }
+            });
+            state.computing = true;
+            *message = "Computing sizes…".to_owned();
+            true
+        }
+        Err(err) => {
+            *message = format!("Cannot read `{}`: {err}", target.display());
+            false
+        }
+    }
 }
 
 fn draw(out: &mut dyn Write, view: &View<'_>, width: u16, height: u16) -> io::Result<()> {
@@ -118,10 +177,12 @@ fn main() -> io::Result<()> {
         .unwrap_or_else(|| env::current_dir().unwrap_or_default());
 
     let mut dir = start;
-    let mut entries = list_entries(&dir)?;
+    let mut entries = Vec::new();
     let mut selected = 0usize;
     let mut top = 0usize;
     let mut message = String::new();
+    let mut nav = NavState::new();
+    navigate(&dir, &mut entries, &mut nav, &mut message);
 
     enable_raw_mode()?;
     let mut out = io::stdout();
@@ -131,6 +192,27 @@ fn main() -> io::Result<()> {
     let guard = DropGuard;
     let result = (|| {
         loop {
+            if nav.computing {
+                let ready = nav
+                    .result
+                    .lock()
+                    .map(|mut guard| guard.take())
+                    .unwrap_or(None);
+                if let Some((generation, _path, enriched)) = ready {
+                    if generation == nav.running_generation.load(Ordering::SeqCst) {
+                        nav.computing = false;
+                        match enriched {
+                            Some(new_entries) => {
+                                entries = new_entries;
+                                message.clear();
+                            }
+                            None => {
+                                message = "Could not compute directory size".to_owned();
+                            }
+                        }
+                    }
+                }
+            }
             let (width, height) = size()?;
             let view = View {
                 dir: &dir,
@@ -157,17 +239,12 @@ fn main() -> io::Result<()> {
                                 selected += 1;
                             }
                         }
-                        KeyCode::Char('r') => match list_entries(&dir) {
-                            Ok(new_entries) => {
-                                entries = new_entries;
+                        KeyCode::Char('r') => {
+                            if navigate(&dir, &mut entries, &mut nav, &mut message) {
                                 selected = 0;
                                 top = 0;
-                                message.clear();
                             }
-                            Err(err) => {
-                                message = format!("Cannot read `{}`: {err}", dir.display());
-                            }
-                        },
+                        }
                         KeyCode::Enter => {
                             let Some(entry) = entries.get(selected) else {
                                 continue;
@@ -175,17 +252,10 @@ fn main() -> io::Result<()> {
                             if entry.is_dir {
                                 let mut next = dir.clone();
                                 next.push(&entry.name);
-                                match list_entries(&next) {
-                                    Ok(new_entries) => {
-                                        entries = new_entries;
-                                        dir = next;
-                                        selected = 0;
-                                        top = 0;
-                                        message.clear();
-                                    }
-                                    Err(err) => {
-                                        message = format!("Cannot open `{}`: {err}", entry.name);
-                                    }
+                                if navigate(&next, &mut entries, &mut nav, &mut message) {
+                                    dir = next;
+                                    selected = 0;
+                                    top = 0;
                                 }
                             } else {
                                 message = format!(
@@ -196,11 +266,12 @@ fn main() -> io::Result<()> {
                         }
                         KeyCode::Backspace => {
                             if let Some(parent) = dir.parent() {
-                                dir = parent.to_path_buf();
-                                entries = list_entries(&dir)?;
-                                selected = 0;
-                                top = 0;
-                                message.clear();
+                                let parent = parent.to_path_buf();
+                                if navigate(&parent, &mut entries, &mut nav, &mut message) {
+                                    dir = parent;
+                                    selected = 0;
+                                    top = 0;
+                                }
                             }
                         }
                         _ => {}
