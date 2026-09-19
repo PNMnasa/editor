@@ -20,14 +20,17 @@ Hướng dẫn cho agent khi làm việc trong dự án `editor`.
 
 ## Cấu trúc & gotcha
 
-- 4 file trong `src/`:
-  - `main.rs` — binary entry, explorer TUI.
-  - `dir_info.rs` — logic liệt kê file/folder, thống kê kích thước; **chứa tất cả test** của dự án (`#[cfg(test)] mod tests`).
+- Các module trong `src/` (theo vai trò, không cố định số file — đang thêm dần):
+  - `main.rs` — binary entry, explorer TUI; vẽ danh sách ngay bằng `list_basic`, tính kích thước ở luồng nền (`list_entries`) rồi ghi đè.
+  - `dir_info.rs` — liệt kê file/folder, thống kê kích thước; **chứa tất cả test** của dự án (`#[cfg(test)] mod tests`). Test tự tạo temp dirs thật, không cần fixture/dịch vụ ngoài.
+  - `format_tools.rs` — format số/chuỗi (hiện có `format_size`).
   - `terminal_tools.rs` — ANSI helpers.
-  - `terminal_ui_tools.rs` — text/color drawing.
-- Tất cả modules đều có `#[expect(dead_code)]` ở cấp `mod` trong `main.rs`. Nếu dùng toàn bộ public items từ một module, lint `unfulfilled_lint_expectations` sẽ kích hoạt và clippy fail `-D warnings`. Cần giữ hoặc bỏ `#[expect]` cho phù hợp.
+  - `terminal_ui_tools.rs` — vẽ text/color/box.
+- Tất cả modules đều có `#[expect(dead_code)]` ở cấp `mod` trong `main.rs`. Nếu dùng toàn bộ công khai từ một module, `#[expect]` đó trở thành `unfulfilled_lint_expectations` và clippy `-D warnings` sẽ fail — giữ hoặc bỏ `#[expect]` cho từng module.
+- `opencode.json` (và `.opencode/agent/reviewer.md`) cấu hình OpenCode: chỉ `git *` và `cargo *` được chạy không cần hỏi; mọi lệnh shell khác sẽ hỏi lại user.
+- Trong `.opencode/`, chỉ `agent/reviewer.md` được track; `package*.json` và `node_modules` là scratch của plugin, đã gitignore — đừng commit chúng.
 - CI (`.github/workflows/ci.yml`): 4 bước — `fmt --check`, `clippy --all-targets -- -D warnings`, `test`, `build --release` — chạy trên Windows, Linux, macOS.
-- Release workflow (`.github/workflows/release.yml`): trigger bởi tag `v*` trên `main`, build release 3 nền tảng và tạo GitHub release.
+- Release workflow (`.github/workflows/release.yml`): trigger bởi tag `v*` trên `main`, build release 3 nền tảng và tạo GitHub release (binary đổi tên `editor-linux` / `editor-windows.exe` / `editor-macos`).
 
 ## Quy ước quan trọng
 

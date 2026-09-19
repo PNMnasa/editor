@@ -6,6 +6,10 @@ Editor cho mọi thứ — hỗ trợ code, chỉnh sửa ảnh và các định
 
 ## Tính năng
 
+### Đã hoàn thành
+
+- Manager: Xem tên, dung lượng file folder; Việc tính toán dung lượng gây delay giao diện
+
 ### Chỉnh sửa
 - Code: soạn thảo và hỗ trợ nhiều ngôn ngữ lập trình
 - Ảnh: chỉnh sửa ảnh
