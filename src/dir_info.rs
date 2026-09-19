@@ -6,24 +6,6 @@
 //! For large directories, use `list_basic` to draw the list right away, then
 //! run `list_entries` (or `dir_stats`) on a background thread to fill in sizes
 //! afterwards — avoids UI delay.
-//!
-//! Example:
-//!
-//! ```ignore
-//! use std::path::Path;
-//! use editor::dir_info;
-//!
-//! let entries = dir_info::list_entries(Path::new("."))?;
-//! for entry in &entries {
-//!     let stats = if entry.is_dir {
-//!         format!("{} file, {} folder", entry.files, entry.dirs)
-//!     } else {
-//!         dir_info::format_size(entry.size)
-//!     };
-//!     println!("{} ({})", entry.name, stats);
-//! }
-//! # Ok::<(), std::io::Error>(())
-//! ```
 
 use std::{
     fs,
@@ -170,20 +152,6 @@ pub fn dir_stats_with(dir: &Path, max_depth: usize) -> io::Result<DirStats> {
     dir_stats_at(dir, max_depth)
 }
 
-/// Format a byte count into a readable unit (B, K, M, G — base 1024).
-pub fn format_size(bytes: u64) -> String {
-    const KB: f64 = 1024.0;
-    if bytes as f64 >= KB * KB * KB {
-        format!("{:.1}G", bytes as f64 / (KB * KB * KB))
-    } else if bytes as f64 >= KB * KB {
-        format!("{:.1}M", bytes as f64 / (KB * KB))
-    } else if bytes as f64 >= KB {
-        format!("{:.1}K", bytes as f64 / KB)
-    } else {
-        format!("{bytes}B")
-    }
-}
-
 fn dir_stats_at(dir: &Path, depth: usize) -> io::Result<DirStats> {
     let mut stats = DirStats::default();
     for item in fs::read_dir(dir)? {
@@ -215,6 +183,7 @@ fn dir_stats_at(dir: &Path, depth: usize) -> io::Result<DirStats> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::format_tools::format_size;
     use std::path::PathBuf;
 
     fn temp_root(name: &str) -> io::Result<PathBuf> {
