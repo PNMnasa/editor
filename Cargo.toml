@@ -1,11 +1,11 @@
 [package]
 name = "editor-91to9"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Editor for everything — supports code, image editing and other common formats"
 license = "GPL-3.0"
 authors = ["PNMnasa <maingocphong216@gmail.com>"]
-repository = "https://github.com/PNMnasa/editor/tree/develop"
+repository = "https://github.com/PNMnasa/editor"
 
 [dependencies]
 crossterm = "0.29.0"
