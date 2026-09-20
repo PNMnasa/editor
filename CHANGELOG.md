@@ -7,6 +7,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added
+
+- TUI: quick navigation keys `PgUp`/`PgDn`/`Home`/`End`, filter the list with `/` (Enter applies / Esc cancels) and toggle hidden files with `.` or `h`
+- Spinner for the "computing sizes" state while the background scan is still running
+- Unit tests for `clip` (`src/main.rs`) and `format_size` continuing into terabyte units
+
+### Changed
+
+- `dir_info`: the background thread now uses `list_entries_with_checked` with a cancel flag — the previous scan stops early when navigating to another folder, and only the current generation writes its result
+
+### Fixed
+
+- `dir_info`: test `dir_stats_not_a_directory` no longer uses a name that easily collides in CWD — uses a PID-based temp path
+
 ## [0.1.1] - 2026-09-20
 
 ### Changed
