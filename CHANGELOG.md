@@ -15,19 +15,30 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - `benches/scan.rs`: dependency-free manual micro-benchmark — measures `list_entries_with` and cross-checks `format_size` against `u64::ilog2`, an `if/else` chain, a multiply loop, and (Windows only) `StrFormatByteSizeW` (speed-only; output is not compared because of the decimal base 1000) — (`cargo bench --bench scan`)
 - CI: job `config-check` runs `actionlint` (validates `ci.yml`/`release.yml`), `scripts/check_opencode.sh`/`.ps1` (opencode.json allowlist invariants), syntax-checks `scripts/*.sh` and parses `scripts/*.ps1`
 - Markdown lint: job `config-check` uses `rumdl` (a Rust markdown linter, rule IDs follow the markdownlint MDxxx standard) on every `.md` file in the repo — `.rumdl.toml` documents each choice; also fixes leftover violations (MD034/MD047/MD012)
-- `.markdownlint.json`: mirrors `.rumdl.toml` (MD013 off) for the `markdownlint` linter used by editors (Neovim…) — editors filter MDxxx warnings exactly per repo convention
 - `rust-toolchain.toml`: pins the `stable` toolchain with `clippy`/`rustfmt` components so fmt/clippy stay consistent between CI and local
+- `scripts/ci.ps1`: wraps the 4 CI steps into a single command for the agent loop / release
+- `scripts/snapshot-ref.ps1`: stores a snapshot ref (`git update-ref refs/backup/<name>`) before destructive operations
+- opencode skill `.opencode/skill/release/SKILL.md` documenting the release workflow
+- `release.yml`: job `verify` automatically blocks when the tag does not match the `Cargo.toml` version or `CHANGELOG.md` is missing a `## [vX]` entry, and uses that very entry as the GitHub release body
+- opencode `/verify` command (`.opencode/command/verify.md`): runs the CI script, the allowlist check and shows git status/log in a single quick check
+- `scripts/*.sh`: native bash variants (Linux/macOS) for `ci`, `check_opencode`, `snapshot-ref`, `release` — identical behavior to the `.ps1` variants
+- `.markdownlint.json`: mirrors `.rumdl.toml` (MD013 off) for the `markdownlint` linter used by editors (Neovim…) — editors filter MDxxx warnings exactly per repo convention
 
 ### Changed
 
 - `dir_info`: the background thread now uses `list_entries_with_checked` with a cancel flag — the previous scan stops early when navigating to another folder, and only the current generation writes its result
 - `format_size`: automatically picks the unit up to exabyte (B, K, M, G, T, P, E) via the highest set bit (`leading_zeros`) instead of an `if/else` chain — `u64` cannot represent ZB/YB
 - `opencode.json`: allows running the `ci`/`check_opencode`/`snapshot-ref` scripts (both `.ps1` and `.sh`) and `git update-ref refs/backup/*` without asking
+- `release.ps1` reuses `scripts/ci.ps1` for the CI check step; `release.sh` reuses `scripts/ci.sh`
+- `ci.yml`: `config-check` runs native `scripts/check_opencode.sh` and syntax-checks `scripts/*.sh` with bash; `scripts/*.ps1` are still parsed with pwsh on the runner
+- Scripts moved to **native builds per OS** (`scripts/*.ps1` for Windows, `scripts/*.sh` for Linux/macOS) instead of forcing pwsh everywhere — pick the right variant for the OS, no extra runtime needed
+- `.opencode/agent/reviewer.md`: the reviewer runs the real CI script and reviews the diff against project conventions instead of only reading the code
 
 ### Fixed
 
 - `dir_info`: test `dir_stats_not_a_directory` no longer uses a name that easily collides in CWD — uses a PID-based temp path
 - `CONTRIBUTING.md`: clippy instructions now use `--all-targets -- -D warnings` to match CI
+- `release.yml`: fixed the wrong built binary name (`editor` → `editor-91to9`) and the trigger now only fires when a `v*` tag is created instead of on every `main` push
 
 ## [0.1.1] - 2026-09-20
 
