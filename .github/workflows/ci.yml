@@ -9,6 +9,46 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  config-check:
+    name: Validate config & scripts
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate opencode.json permission invariants
+        run: bash ./scripts/check_opencode.sh
+
+      - name: Syntax-check bash scripts (native Linux/macOS variants)
+        run: |
+          for f in scripts/*.sh; do
+            bash -n "$f" || exit 1
+          done
+          echo "All scripts/*.sh parse OK"
+
+      - name: Parse PowerShell scripts (native Windows variants)
+        shell: pwsh
+        run: |
+          $errors = @()
+          Get-ChildItem scripts -Filter *.ps1 | ForEach-Object {
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              $_.FullName, [ref]$null, [ref]$errors)
+          }
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_ }
+            exit 1
+          }
+          Write-Host "All scripts/*.ps1 parse OK"
+
+      - name: actionlint
+        run: docker run --rm -v "${{ github.workspace }}:/repo" --workdir /repo rhysd/actionlint:latest -color
+
+      - name: Lint Markdown files (rumdl)
+        uses: rvben/rumdl@v0.2.75
+        with:
+          version: "0.2.75"
+          config: .rumdl.toml
+
   check-test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

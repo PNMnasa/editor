@@ -1,0 +1,18 @@
+# rumdl configuration (Markdown linter, rule IDs follow the markdownlint MDxxx standard).
+#
+# References:
+#   - Rules & configuration: https://rumdl.dev/rules
+#   - Global settings: https://rumdl.dev/global-settings
+#
+# The repo generally follows the MDxxx standard; we only enable/disable the
+# rules that clash with its own conventions, and each choice is justified below.
+
+[global]
+# Repo convention: docs are written in English with long sentences, and lines
+# are not wrapped at 80 characters — disable the line-length rule instead of
+# wrapping text arbitrarily.
+disable = ["MD013"]
+
+# opencode's internal config files (agent/skill) are not project docs and do
+# not follow regular doc conventions (they need not start with an H1, etc.).
+exclude = [".opencode/**"]

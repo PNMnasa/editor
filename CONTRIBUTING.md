@@ -4,7 +4,7 @@ Thank you for your interest in the project. Before contributing, please read the
 
 ## Environment requirements
 
-- Rust toolchain **1.85** or later - install via [rustup](https://rustup.rs/)
+- Rust toolchain **1.85** or later — install via [rustup](https://rustup.rs/)
 - Make sure `cargo` and `rustc` work from your terminal
 
 ## Contribution workflow
@@ -17,10 +17,10 @@ Thank you for your interest in the project. Before contributing, please read the
    ```
 
 3. Make your changes and ensure:
-   - `cargo fmt` - formatting is correct
-   - `cargo clippy -- -D warnings` - no warnings remain
-   - `cargo test` - all tests pass
-   - `cargo check` - compiles without errors
+   - `cargo fmt` — formatting is correct
+   - `cargo clippy --all-targets -- -D warnings` — no warnings remain
+   - `cargo test` — all tests pass
+   - `cargo check` — compiles without errors
 4. **Commit** with a clear message summarizing the change.
 5. **Pull request** against the main branch, describing the change and the test results.
 
