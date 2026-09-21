@@ -5,6 +5,7 @@ edition = "2024"
 description = "Editor for everything — supports code, image editing and other common formats"
 license = "GPL-3.0"
 authors = ["PNMnasa <maingocphong216@gmail.com>"]
+rust-version = "1.85"
 repository = "https://github.com/PNMnasa/editor"
 
 [dependencies]

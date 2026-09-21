@@ -16,6 +16,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - CI: job `config-check` runs `actionlint` (validates `ci.yml`/`release.yml`), `scripts/check_opencode.sh`/`.ps1` (opencode.json allowlist invariants), syntax-checks `scripts/*.sh` and parses `scripts/*.ps1`
 - Markdown lint: job `config-check` uses `rumdl` (a Rust markdown linter, rule IDs follow the markdownlint MDxxx standard) on every `.md` file in the repo — `.rumdl.toml` documents each choice; also fixes leftover violations (MD034/MD047/MD012)
 - `.markdownlint.json`: mirrors `.rumdl.toml` (MD013 off) for the `markdownlint` linter used by editors (Neovim…) — editors filter MDxxx warnings exactly per repo convention
+- `rust-toolchain.toml`: pins the `stable` toolchain with `clippy`/`rustfmt` components so fmt/clippy stay consistent between CI and local
 
 ### Changed
 
