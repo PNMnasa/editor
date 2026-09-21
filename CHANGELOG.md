@@ -12,6 +12,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - TUI: quick navigation keys `PgUp`/`PgDn`/`Home`/`End`, filter the list with `/` (Enter applies / Esc cancels) and toggle hidden files with `.` or `h`
 - Spinner for the "computing sizes" state while the background scan is still running
 - Unit tests for `clip` (`src/main.rs`) and `format_size` continuing into terabyte units
+- `benches/scan.rs`: dependency-free manual micro-benchmark — measures `list_entries_with` and cross-checks `format_size` against `u64::ilog2`, an `if/else` chain, a multiply loop, and (Windows only) `StrFormatByteSizeW` (speed-only; output is not compared because of the decimal base 1000) — (`cargo bench --bench scan`)
 
 ### Changed
 
