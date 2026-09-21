@@ -34,12 +34,14 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - `ci.yml`: `config-check` runs native `scripts/check_opencode.sh` and syntax-checks `scripts/*.sh` with bash; `scripts/*.ps1` are still parsed with pwsh on the runner
 - Scripts moved to **native builds per OS** (`scripts/*.ps1` for Windows, `scripts/*.sh` for Linux/macOS) instead of forcing pwsh everywhere — pick the right variant for the OS, no extra runtime needed
 - `.opencode/agent/reviewer.md`: the reviewer runs the real CI script and reviews the diff against project conventions instead of only reading the code
+- Whole project unified to English: docs, changelog, code comments, crate description, terminal UI messages and bench output are now written in English (previously mixed Vietnamese/English)
+- `main`: the TUI now redraws only the lines that actually changed (title/item-count line, individual list rows, status line) instead of clearing and redrawing the whole screen every frame — the spinner ticks touch only the status line, selection changes touch only the affected rows, and once a background scan finishes only the rows whose displayed sizes changed are updated
 
 ### Fixed
 
-- `dir_info`: test `dir_stats_not_a_directory` no longer uses a name that easily collides in CWD — uses a PID-based temp path
 - `CONTRIBUTING.md`: clippy instructions now use `--all-targets -- -D warnings` to match CI
 - `dir_info`: `collect_basic`/`dir_stats_at` use `fs::metadata(item.path())` (follows symlinks) instead of `DirEntry::metadata()` — on Linux/macOS the old version does not follow symlinks, so the `symlinked_dir_counts_as_dir` test failed on CI (Windows still passed due to different reparse-point semantics)
+- `dir_info`: test `dir_stats_not_a_directory` no longer uses a name that easily collides in CWD — uses a PID-based temp path
 - `release.yml`: fixed the wrong built binary name (`editor` → `editor-91to9`) and the trigger now only fires when a `v*` tag is created instead of on every `main` push
 
 ## [0.1.1] - 2026-09-20

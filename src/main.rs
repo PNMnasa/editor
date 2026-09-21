@@ -26,11 +26,12 @@ mod terminal_ui_tools;
 use dir_info::{Entry, ScanOptions, list_basic, list_entries_with_checked};
 use format_tools::format_size;
 use terminal_tools::{
-    clear, enter_alt_screen, hide_cursor, leave_alt_screen, set_title, show_cursor,
+    clear, clear_line, enter_alt_screen, goto, hide_cursor, leave_alt_screen, set_title,
+    show_cursor,
 };
 use terminal_ui_tools::{bg_color, clear_color, fg_color, put_text};
 
-/// Rotating frames for the "computing" state (no external library needed).
+/// Spinner frames for the "computing" state (no external library needed).
 const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 fn clip(text: &str, max: usize) -> String {
@@ -62,13 +63,38 @@ struct View<'a> {
     filter_draft: &'a str,
 }
 
-/// Background scan result: the generation it started in, the directory it scanned,
-/// and the fully enriched list (`None` = could not compute).
+/// The text drawn on one list row; compared across frames so only rows whose
+/// content (name, size, folder style or selection marker) actually changed
+/// need to be redrawn.
+#[derive(Clone, PartialEq)]
+struct Cell {
+    name: String,
+    size: String,
+    is_dir: bool,
+    selected: bool,
+}
+
+/// Snapshot of what is currently on screen. `sync` diffs the new frame against
+/// it and only rewrites the parts that changed (title/count line, individual
+/// list rows, status line) instead of clearing and redrawing the whole screen.
+#[derive(Default)]
+struct Screen {
+    dir: String,
+    count: usize,
+    width: u16,
+    height: u16,
+    rows: Vec<Option<Cell>>,
+    status: String,
+}
+
+/// Background scan result: the generation when it started, the scanned
+/// directory, and the full stats list (`None` = could not be computed).
 type ScanResult = Option<(usize, PathBuf, Option<Vec<Entry>>)>;
 
 /// Background scan state: the list is drawn immediately from `list_basic`,
-/// while a background thread runs `list_entries_with_checked` and checks the
-/// `cancel` flag, then overwrites the result when it finishes.
+/// the background thread computes `list_entries_with_checked` while checking
+/// the `cancel` flag (each navigation sets the flag of the previous scan so
+/// it stops early) and overwrites the result when done.
 struct NavState {
     generation: Arc<AtomicUsize>,
     cancel: Arc<AtomicBool>,
@@ -87,11 +113,11 @@ impl NavState {
     }
 }
 
-/// Draws the `target` listing immediately via `list_basic`, pushing the
-/// (recursive) size computation to a background thread. The previous scan is
-/// cancelled through the `cancel` flag; a background result is applied only
-/// while its generation is still current. Returns `true`
-/// if the quick listing succeeded.
+/// Draw the list for `target` immediately with `list_basic`, and in parallel
+/// move the (recursive) size computation to a background thread. The previous
+/// scan is cancelled via the `cancel` flag; background results are applied
+/// only while the generation is still valid (only the current scan's thread
+/// writes its result). Returns `true` on a successful quick listing.
 fn navigate(
     target: &Path,
     entries: &mut Vec<Entry>,
@@ -144,8 +170,8 @@ fn navigate(
     }
 }
 
-/// Indices of the items currently shown in `entries` (hidden files filtered by
-/// `show_hidden`, names by `filter`; the original sort order is kept).
+/// Indices of the entries currently visible in `entries` (hidden files
+/// filtered by `show_hidden`, names by `filter`; original sort order kept).
 fn visible_indices(entries: &[Entry], show_hidden: bool, filter: &str) -> Vec<usize> {
     let needle = filter.to_lowercase();
     entries
@@ -159,58 +185,74 @@ fn visible_indices(entries: &[Entry], show_hidden: bool, filter: &str) -> Vec<us
         .collect()
 }
 
-fn draw(
-    out: &mut dyn Write,
-    view: &View<'_>,
-    indices: &[usize],
-    width: u16,
-    height: u16,
-) -> io::Result<()> {
-    clear(out)?;
-    set_title(out, format!("Explorer — {}", view.dir.display()))?;
+/// The clipped directory path shown on the title line.
+fn dir_caption(dir: &Path, width: u16) -> String {
+    clip(&dir.display().to_string(), width.saturating_sub(8) as usize)
+}
 
-    put_text(
-        out,
-        1,
-        1,
-        clip(
-            &view.dir.display().to_string(),
-            width.saturating_sub(8) as usize,
-        ),
-    )?;
+/// What should be rendered on the list row `pos` (its offset into the visible
+/// list, starting at `view.top`), or `None` when there is no entry at that
+/// position.
+fn cell_for(view: &View<'_>, indices: &[usize], width: u16, pos: usize) -> Option<Cell> {
+    let entry_index = *indices.get(view.top + pos)?;
+    let entry = &view.entries[entry_index];
+    Some(Cell {
+        name: clip(&entry.name, width.saturating_sub(14) as usize),
+        size: format_size(entry.size),
+        is_dir: entry.is_dir,
+        selected: view.selected == pos,
+    })
+}
+
+/// Redraw the first line: directory path on the left, item count on the right.
+fn render_title(out: &mut dyn Write, width: u16, dir: &Path, count: usize) -> io::Result<()> {
+    goto(out, 1, 1)?;
+    clear_line(out)?;
+    put_text(out, 1, 1, dir_caption(dir, width))?;
     fg_color(out, 36)?;
+    put_text(out, 1, width.saturating_sub(10), format!("{count} items"))?;
+    clear_color(out)
+}
+
+/// Redraw the last line: the keyboard help (drawn once per full redraw).
+fn render_help(out: &mut dyn Write, height: u16) -> io::Result<()> {
+    let y = height.saturating_sub(1);
+    goto(out, y, 1)?;
+    clear_line(out)?;
     put_text(
         out,
+        y,
         1,
-        width.saturating_sub(10),
-        format!("{} items", indices.len()),
-    )?;
-    clear_color(out)?;
+        "q: quit | j/k/arrows: move | PgUp/PgDn/Home/End: page | /: filter | .: hidden | Enter: open | Backspace: up | r: refresh",
+    )
+}
 
-    let list_area = height.saturating_sub(4) as usize;
-    for (row, pos) in (view.top..view.top + list_area).enumerate() {
-        let Some(&entry_index) = indices.get(pos) else {
-            break;
-        };
-        let entry = &view.entries[entry_index];
-        let y = 2 + row as u16;
-
-        if view.selected == pos {
-            bg_color(out, 44)?;
-            put_text(out, y, 1, ">")?;
-        } else {
-            put_text(out, y, 1, " ")?;
-        }
-        if entry.is_dir {
-            fg_color(out, 34)?;
-        }
-        let name_len = width.saturating_sub(14) as usize;
-        put_text(out, y, 3, clip(&entry.name, name_len))?;
-        clear_color(out)?;
-
-        put_text(out, y, width.saturating_sub(8), format_size(entry.size))?;
+/// Redraw the contents of one list row (marker, name, size).
+fn render_list_row(out: &mut dyn Write, y: u16, cell: &Cell, width: u16) -> io::Result<()> {
+    goto(out, y, 1)?;
+    clear_line(out)?;
+    if cell.selected {
+        bg_color(out, 44)?;
+        put_text(out, y, 1, ">")?;
+    } else {
+        put_text(out, y, 1, " ")?;
     }
+    if cell.is_dir {
+        fg_color(out, 34)?;
+    }
+    put_text(out, y, 3, &cell.name)?;
+    clear_color(out)?;
+    put_text(out, y, width.saturating_sub(8), &cell.size)
+}
 
+/// Clear the entire contents of a list row whose entry no longer exists.
+fn clear_row(out: &mut dyn Write, y: u16) -> io::Result<()> {
+    goto(out, y, 1)?;
+    clear_line(out)
+}
+
+/// Compose the second-to-last line: computing spinner, message, filter state.
+fn status_line(view: &View<'_>) -> String {
     let status = if view.filtering {
         format!("Filter (Enter=apply, Esc=cancel): {}", view.filter_draft)
     } else {
@@ -223,18 +265,83 @@ fn draw(
         }
         status
     };
-    let status = if view.computing {
+    if view.computing {
         format!("{} {status}", view.spinner)
     } else {
         status
-    };
-    put_text(out, height.saturating_sub(2), 1, status)?;
-    put_text(
-        out,
-        height.saturating_sub(1),
-        1,
-        "q: quit | j/k/arrows: move | PgUp/PgDn/Home/End: page | /: filter | .: hidden | Enter: open | Backspace: up | r: refresh",
-    )?;
+    }
+}
+
+/// Redraw the second-to-last line (cleared before writing so a shorter
+/// previous status cannot leave trailing characters).
+fn render_status(out: &mut dyn Write, height: u16, status: &str) -> io::Result<()> {
+    let y = height.saturating_sub(2);
+    goto(out, y, 1)?;
+    clear_line(out)?;
+    put_text(out, y, 1, status)
+}
+
+/// Draw the screen, redrawing only the parts that changed since the previous
+/// call. A full redraw (whole `clear`) happens once at startup, on resize, on
+/// navigation (new directory) and otherwise only the title/count line, the
+/// list rows whose content changed and the status line are rewritten — so the
+/// spinner ticks and, once a scan finishes, only the rows whose displayed
+/// sizes changed are updated.
+fn sync(
+    out: &mut dyn Write,
+    view: &View<'_>,
+    indices: &[usize],
+    width: u16,
+    height: u16,
+    screen: &mut Screen,
+) -> io::Result<()> {
+    let dir = view.dir.display().to_string();
+    let count = indices.len();
+    let status = status_line(view);
+    let area = height.saturating_sub(4) as usize;
+
+    if screen.rows.is_empty()
+        || screen.width != width
+        || screen.height != height
+        || screen.dir != dir
+    {
+        clear(out)?;
+        set_title(out, format!("Explorer — {dir}"))?;
+        render_title(out, width, view.dir, count)?;
+        render_help(out, height)?;
+        render_status(out, height, &status)?;
+        screen.rows.clear();
+        for pos in 0..area {
+            let cell = cell_for(view, indices, width, pos);
+            if let Some(cell) = &cell {
+                render_list_row(out, 2 + pos as u16, cell, width)?;
+            }
+            screen.rows.push(cell);
+        }
+    } else {
+        if screen.count != count {
+            render_title(out, width, view.dir, count)?;
+        }
+        for pos in 0..area {
+            let cell = cell_for(view, indices, width, pos);
+            if cell != *screen.rows.get(pos).unwrap_or(&None) {
+                match &cell {
+                    Some(cell) => render_list_row(out, 2 + pos as u16, cell, width)?,
+                    None => clear_row(out, 2 + pos as u16)?,
+                }
+            }
+            screen.rows[pos] = cell;
+        }
+        if screen.status != status {
+            render_status(out, height, &status)?;
+        }
+    }
+
+    screen.dir = dir;
+    screen.count = count;
+    screen.width = width;
+    screen.height = height;
+    screen.status = status;
     Ok(())
 }
 
@@ -264,6 +371,7 @@ fn main() -> io::Result<()> {
     let mut filtering = false;
     let mut filter_draft = String::new();
     let mut spinner = 0usize;
+    let mut screen = Screen::default();
 
     navigate(&dir, &mut entries, &mut nav, &mut message);
 
@@ -324,7 +432,7 @@ fn main() -> io::Result<()> {
                 filter: &filter,
                 filter_draft: &filter_draft,
             };
-            draw(&mut out, &view, &indices, width, height)?;
+            sync(&mut out, &view, &indices, width, height, &mut screen)?;
             out.flush()?;
 
             if event::poll(Duration::from_millis(100))? {
