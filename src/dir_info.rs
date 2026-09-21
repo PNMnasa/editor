@@ -1,13 +1,17 @@
 //! Helper library for a directory manager: lists the files/folders of a
 //! directory with size info, recursive file/folder counts and total size.
-//! A pure logic module (no terminal/UI dependency), usable from both the TUI
-//! and the GUI.
+//! A pure logic module (no terminal/UI dependency), usable from both TUI and
+//! GUI.
 //!
-//! Use `list_basic` to draw a large directory right away, then run
-//! `list_entries_with_checked` (or `dir_stats`) on a background thread to
-//! fill in sizes afterwards. The `*_checked` variants take an `AtomicBool`
-//! cancel flag so the scan stops early when the user has navigated elsewhere.
+//! For large directories, use `list_basic` to draw the list right away, then
+//! run `list_entries_with_checked` (or `dir_stats`) on a background thread to
+//! fill in sizes afterwards — avoids UI delay. The `*_checked` variants take
+//! an `AtomicBool` cancel flag so the scan stops early when the user has
+//! navigated elsewhere.
 //!
+//! Symlinks to directories count as directories (`fs::metadata` — follows the
+//! symlink); broken symlinks are skipped.
+
 use std::{
     fs,
     io::{self, ErrorKind},
@@ -38,7 +42,8 @@ impl Default for ScanOptions {
     }
 }
 
-/// Directory tree stats: files, directories and the total (recursive) size.
+/// Directory tree stats: number of files, directories and the total
+/// (recursive) size.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DirStats {
     pub files: u64,
@@ -59,14 +64,14 @@ pub struct Entry {
     pub dirs: u64,
 }
 
-/// Internal error signalling the scan was cancelled by the `cancel` flag.
+/// Internal error signalling that the scan was cancelled via the `cancel` flag.
 fn cancelled_error() -> io::Error {
     io::Error::new(ErrorKind::Interrupted, "scan cancelled")
 }
 
-/// Quickly list the contents of `dir`: no recursive stats (directories come back
-/// with `size/files/dirs = 0`). Use it to draw the list first, then compute
-/// sizes on a background thread and overwrite.
+/// Quickly list the contents of `dir`: no recursive stats (directories come
+/// back with `size/files/dirs = 0`). Use it to draw the list first, then
+/// compute sizes on a background thread and overwrite.
 pub fn list_basic(dir: &Path) -> io::Result<Vec<Entry>> {
     let mut entries = collect_basic(dir, &ScanOptions::default(), None)?;
     sort_entries(&mut entries);
@@ -82,16 +87,17 @@ pub fn list_entries(dir: &Path) -> io::Result<Vec<Entry>> {
 /// List the contents of `dir` with recursive stats per directory per `opts`.
 ///
 /// Results are sorted directories first (case-insensitive by name), then
-/// files. Unreadable entries are skipped; errors on `dir` itself are returned
-/// as-is. Prefer `list_basic` + a background thread on large directories.
+/// files. Unreadable entries are skipped; errors on `dir` itself are
+/// returned as-is. Prefer `list_basic` + a background thread for large
+/// directories.
 pub fn list_entries_with(dir: &Path, opts: &ScanOptions) -> io::Result<Vec<Entry>> {
     let entries = collect_basic(dir, opts, None)?;
     Ok(enrich(entries, dir, opts, None))
 }
 
-/// Like `list_entries_with` but accepts a `cancel` flag: when the flag is set
-/// mid-scan, an `ErrorKind::Interrupted` error is returned so the background
-/// thread stops early instead of walking the whole tree.
+/// Like `list_entries_with` but taking a `cancel` flag: when the flag is set
+/// mid-scan, returns `ErrorKind::Interrupted` so a background thread can stop
+/// early instead of walking the whole tree.
 pub fn list_entries_with_checked(
     dir: &Path,
     opts: &ScanOptions,
@@ -108,7 +114,7 @@ pub fn dir_stats(dir: &Path) -> io::Result<DirStats> {
 
 /// Recursive stats of `dir`, descending at most `max_depth` levels.
 ///
-/// `max_depth = 0` counts only the direct entries of `dir` (no descent).
+/// `max_depth = 0` counts only the direct entries of `dir` (does not descend).
 /// Descending beyond the limit stops there; deeper directories are not added.
 /// Unreadable subdirectories are skipped.
 pub fn dir_stats_with(dir: &Path, max_depth: usize) -> io::Result<DirStats> {
@@ -139,7 +145,7 @@ fn collect_basic(
         let Ok(item) = item else {
             continue;
         };
-        let Ok(meta) = item.metadata() else {
+        let Ok(meta) = fs::metadata(item.path()) else {
             continue;
         };
         let is_dir = meta.is_dir();
@@ -196,7 +202,7 @@ fn dir_stats_at(dir: &Path, depth: usize, cancel: Option<&AtomicBool>) -> io::Re
         let Ok(item) = item else {
             continue;
         };
-        let Ok(meta) = item.metadata() else {
+        let Ok(meta) = fs::metadata(item.path()) else {
             continue;
         };
         if !meta.is_dir() {
@@ -366,6 +372,23 @@ mod tests {
         let cancel = AtomicBool::new(false);
         let entries = list_entries_with_checked(&root, &ScanOptions::default(), &cancel)?;
         assert_eq!(entries.len(), 3);
+        fs::remove_dir_all(&root)?;
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_dir_counts_as_dir() -> io::Result<()> {
+        let root = temp_root("symlink")?;
+        make_tree(&root)?;
+        std::os::unix::fs::symlink(root.join("dir1"), root.join("link"))?;
+        let entries = list_entries(&root)?;
+        let link = entries
+            .iter()
+            .find(|e| e.name == "link")
+            .expect("symlink listed");
+        assert!(link.is_dir);
+        assert_eq!((link.files, link.dirs, link.size), (2, 1, 17));
         fs::remove_dir_all(&root)?;
         Ok(())
     }

@@ -27,6 +27,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 ### Changed
 
 - `dir_info`: the background thread now uses `list_entries_with_checked` with a cancel flag — the previous scan stops early when navigating to another folder, and only the current generation writes its result
+- `dir_info`: symlinks to folders count as folders, broken symlinks are skipped (uses `fs::metadata` — follows the symlink)
 - `format_size`: automatically picks the unit up to exabyte (B, K, M, G, T, P, E) via the highest set bit (`leading_zeros`) instead of an `if/else` chain — `u64` cannot represent ZB/YB
 - `opencode.json`: allows running the `ci`/`check_opencode`/`snapshot-ref` scripts (both `.ps1` and `.sh`) and `git update-ref refs/backup/*` without asking
 - `release.ps1` reuses `scripts/ci.ps1` for the CI check step; `release.sh` reuses `scripts/ci.sh`
@@ -38,6 +39,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 - `dir_info`: test `dir_stats_not_a_directory` no longer uses a name that easily collides in CWD — uses a PID-based temp path
 - `CONTRIBUTING.md`: clippy instructions now use `--all-targets -- -D warnings` to match CI
+- `dir_info`: `collect_basic`/`dir_stats_at` use `fs::metadata(item.path())` (follows symlinks) instead of `DirEntry::metadata()` — on Linux/macOS the old version does not follow symlinks, so the `symlinked_dir_counts_as_dir` test failed on CI (Windows still passed due to different reparse-point semantics)
 - `release.yml`: fixed the wrong built binary name (`editor` → `editor-91to9`) and the trigger now only fires when a `v*` tag is created instead of on every `main` push
 
 ## [0.1.1] - 2026-09-20
