@@ -10,7 +10,7 @@
 1. Clone the project:
 
    ```sh
-   git clone <repository-url>
+   git clone https://github.com/PNMnasa/editor.git
    cd editor
    ```
 

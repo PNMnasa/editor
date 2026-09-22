@@ -11,42 +11,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 - TUI: quick navigation keys `PgUp`/`PgDn`/`Home`/`End`, filter the list with `/` (Enter applies / Esc cancels) and toggle hidden files with `.` or `h`
 - Spinner for the "computing sizes" state while the background scan is still running
-- Unit tests for `clip` (`src/main.rs`) and `format_size` continuing into terabyte units
 - `benches/scan.rs`: dependency-free manual micro-benchmark — measures `list_entries_with` and cross-checks `format_size` against `u64::ilog2`, an `if/else` chain, a multiply loop, and (Windows only) `StrFormatByteSizeW` (speed-only; output is not compared because of the decimal base 1000) — (`cargo bench --bench scan`)
-- CI: job `config-check` runs `actionlint` (validates `ci.yml`/`release.yml`), `scripts/check_opencode.sh`/`.ps1` (opencode.json allowlist invariants), syntax-checks `scripts/*.sh` and parses `scripts/*.ps1`
-- Markdown lint: job `config-check` uses `rumdl` (a Rust markdown linter, rule IDs follow the markdownlint MDxxx standard) on every `.md` file in the repo — `.rumdl.toml` documents each choice; also fixes leftover violations (MD034/MD047/MD012)
-- `rust-toolchain.toml`: pins the `stable` toolchain with `clippy`/`rustfmt` components so fmt/clippy stay consistent between CI and local
-- `scripts/ci.ps1`: wraps the 4 CI steps into a single command for the agent loop / release
-- `scripts/snapshot-ref.ps1`: stores a snapshot ref (`git update-ref refs/backup/<name>`) before destructive operations
-- opencode skill `.opencode/skill/release/SKILL.md` documenting the release workflow
-- `release.yml`: job `verify` automatically blocks when the tag does not match the `Cargo.toml` version or `CHANGELOG.md` is missing a `## [vX]` entry, and uses that very entry as the GitHub release body
-- opencode `/verify` command (`.opencode/command/verify.md`): runs the CI script, the allowlist check and shows git status/log in a single quick check
-- `scripts/*.sh`: native bash variants (Linux/macOS) for `ci`, `check_opencode`, `snapshot-ref`, `release` — identical behavior to the `.ps1` variants
-- `.markdownlint.json`: mirrors `.rumdl.toml` (MD013 off) for the `markdownlint` linter used by editors (Neovim…) — editors filter MDxxx warnings exactly per repo convention
+- Newcomer-friendly docs: `README.md` gains a Usage section (run command + key bindings) and the naming of `editor-91to9` is explained; `docs/INSTALL.md` uses the real clone URL; added `CODE_OF_CONDUCT.md` and GitHub issue/pull-request templates; the `Cargo.toml` description now matches the current tool (editor support is explicitly listed as planned)
 
 ### Changed
 
 - `dir_info`: the background thread now uses `list_entries_with_checked` with a cancel flag — the previous scan stops early when navigating to another folder, and only the current generation writes its result
 - `dir_info`: symlinks to folders count as folders, broken symlinks are skipped (uses `fs::metadata` — follows the symlink)
 - `format_size`: automatically picks the unit up to exabyte (B, K, M, G, T, P, E) via the highest set bit (`leading_zeros`) instead of an `if/else` chain — `u64` cannot represent ZB/YB
-- `opencode.json`: allows running the `ci`/`check_opencode`/`snapshot-ref` scripts (both `.ps1` and `.sh`) and `git update-ref refs/backup/*` without asking
-- `release.ps1` reuses `scripts/ci.ps1` for the CI check step; `release.sh` reuses `scripts/ci.sh`
-- `ci.yml`: `config-check` runs native `scripts/check_opencode.sh` and syntax-checks `scripts/*.sh` with bash; `scripts/*.ps1` are still parsed with pwsh on the runner
-- Scripts moved to **native builds per OS** (`scripts/*.ps1` for Windows, `scripts/*.sh` for Linux/macOS) instead of forcing pwsh everywhere — pick the right variant for the OS, no extra runtime needed
-- `.opencode/agent/reviewer.md`: the reviewer runs the real CI script and reviews the diff against project conventions instead of only reading the code
 - Whole project unified to English: docs, changelog, code comments, crate description, terminal UI messages and bench output are now written in English (previously mixed Vietnamese/English)
 - `main`: the TUI now redraws only the lines that actually changed (title/item-count line, individual list rows, status line) instead of clearing and redrawing the whole screen every frame — the spinner ticks touch only the status line, selection changes touch only the affected rows, and once a background scan finishes only the rows whose displayed sizes changed are updated
 - Restructured into a library + binary: new `src/lib.rs` exposes `dir_info`/`format_tools`/`terminal_tools`/`terminal_ui_tools` as public modules; `main.rs` now imports them from the crate. All tests moved from inline `#[cfg(test)]` blocks into `tests/` as integration tests (`tests/dir_info.rs`, `tests/format_tools.rs`, `tests/terminal_ui_tools.rs`); `clip` moved from `main.rs` to `format_tools` so it stays testable, and the duplicated `format_size_units` test was dropped
 
 ### Fixed
 
-- `CONTRIBUTING.md`: clippy instructions now use `--all-targets -- -D warnings` to match CI
-- `dir_info`: `collect_basic`/`dir_stats_at` use `fs::metadata(item.path())` (follows symlinks) instead of `DirEntry::metadata()` — on Linux/macOS the old version does not follow symlinks, so the `symlinked_dir_counts_as_dir` test failed on CI (Windows still passed due to different reparse-point semantics)
-- `dir_info`: test `dir_stats_not_a_directory` no longer uses a name that easily collides in CWD — uses a PID-based temp path
-- `release.yml`: fixed the wrong built binary name (`editor` → `editor-91to9`) and the trigger now only fires when a `v*` tag is created instead of on every `main` push
+- `dir_info`: `collect_basic`/`dir_stats_at` use `fs::metadata(item.path())` (follows symlinks) instead of `DirEntry::metadata()`
 - Security: terminal escape injection — untrusted text (file names, paths, messages) is sanitized at the render boundary (`put_text` and the window title are the two sinks); C0 controls become caret notation (`cat -v` style), DEL `^?`, C1 controls U+FFFD — a file named e.g. `\x1b]0;…` can no longer inject ANSI/OSC sequences into the terminal
 
-## [0.1.1] - 2026-09-20
+## [0.1.1]
 
 ### Changed
 

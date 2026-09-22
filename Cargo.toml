@@ -2,7 +2,7 @@
 name = "editor-91to9"
 version = "0.1.1"
 edition = "2024"
-description = "Editor for everything — supports code, image editing and other common formats"
+description = "Explorer TUI that lists files/folders with size stats; code and image editing are planned"
 license = "GPL-3.0"
 authors = ["PNMnasa <maingocphong216@gmail.com>"]
 rust-version = "1.85"

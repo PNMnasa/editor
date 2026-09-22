@@ -4,12 +4,12 @@ Thank you for your interest in the project. Before contributing, please read the
 
 ## Environment requirements
 
-- Rust toolchain **1.85** or later — install via [rustup](https://rustup.rs/)
+- Rust toolchain **1.85** or later — install setup is in [docs/INSTALL.md](docs/INSTALL.md)
 - Make sure `cargo` and `rustc` work from your terminal
 
 ## Contribution workflow
 
-1. **Open an issue** describing the problem or feature you want to work on, to discuss before coding.
+1. **Open an issue** on the [issue tracker](https://github.com/PNMnasa/editor/issues), describing the problem or feature you want to work on, to discuss before coding.
 2. **Fork** the repository and create a dedicated branch:
 
    ```sh

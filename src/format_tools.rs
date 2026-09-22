@@ -26,8 +26,7 @@ pub fn clip(text: &str, max: usize) -> String {
 ///
 /// The unit is chosen by counting the most significant set bit
 /// (`leading_zeros` — a single CPU instruction, no loop): dividing that bit
-/// position by 10 yields the power of 1024. The old `if/else` chain was
-/// replaced by the equivalent bit math.
+/// position by 10 yields the power of 1024.
 pub fn format_size(bytes: u64) -> String {
     const UNITS: [char; 7] = ['B', 'K', 'M', 'G', 'T', 'P', 'E'];
     let bits = u64::BITS - bytes.leading_zeros();
