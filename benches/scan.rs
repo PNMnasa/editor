@@ -5,11 +5,6 @@
 //! without allocation overhead. Run with: `cargo bench --bench scan` or with
 //! args: `cargo bench --bench scan 50 10` (50 scans, 10 format rounds).
 
-//! Modules included via `#[path]` are compiled with `--cfg test` but WITHOUT a
-//! test harness, so their `#[cfg(test)]` blocks are not "used" and get flagged
-//! dead_code/unused_imports. That lint applies only to the bench file, not to
-//! the main crate.
-
 #[path = "../src/format_tools.rs"]
 #[allow(dead_code, unused_imports)]
 mod format_tools;

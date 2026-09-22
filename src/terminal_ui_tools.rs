@@ -8,7 +8,10 @@
 //! - XTerm control sequences: <https://invisible-island.net/xterm/ctlseqs/ctlseqs.html>
 //! - Box-drawing characters (Unicode): <https://en.wikipedia.org/wiki/Box-drawing_character>
 
-use std::io::{self, Write};
+use std::{
+    borrow::Cow,
+    io::{self, Write},
+};
 
 /// Reset foreground and background to the terminal defaults.
 ///
@@ -75,12 +78,56 @@ pub fn bg_rgb(out: &mut dyn Write, r: u8, g: u8, b: u8) -> io::Result<()> {
 
 /// Write text starting at the given row and column.
 ///
-/// Uses CUP to move, then writes the plain text.
+/// Uses CUP to move, then writes the plain text. The text is run through
+/// [`sanitize_for_terminal`] first so control characters in untrusted input
+/// (file names, paths, messages) can never inject ANSI/OSC sequences.
 ///
 /// Source: <https://en.wikipedia.org/wiki/ANSI_escape_code#CSI_(Control_Sequence_Introducer)_sequences>
 #[inline]
 pub fn put_text<S: AsRef<str>>(out: &mut dyn Write, row: u16, col: u16, text: S) -> io::Result<()> {
-    write!(out, "\x1b[{row};{col}H{}", text.as_ref())
+    write!(
+        out,
+        "\x1b[{row};{col}H{}",
+        sanitize_for_terminal(text.as_ref())
+    )
+}
+
+/// Escape terminal control characters so untrusted text can never inject
+/// ANSI/OSC sequences into the terminal.
+///
+/// C0 controls (U+0000..U+001F) are shown in caret notation, DEL as `^?`, and
+/// C1 controls (U+0080..U+009F) as U+FFFD — matching `cat -v`. This keeps
+/// filenames/paths single-line and inert no matter what the filesystem holds.
+/// Clean input is returned borrowed (no allocation).
+pub fn sanitize_for_terminal(text: &str) -> Cow<'_, str> {
+    if !text.contains(is_terminal_control) {
+        return Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        if is_terminal_control(c) {
+            write_caret(&mut out, c);
+        } else {
+            out.push(c);
+        }
+    }
+    Cow::Owned(out)
+}
+
+fn is_terminal_control(c: char) -> bool {
+    matches!(c, '\u{0}'..='\u{1f}' | '\u{7f}'..='\u{9f}')
+}
+
+fn write_caret(out: &mut String, c: char) {
+    let code = c as u32;
+    match code {
+        0x7f => out.push_str("^?"),
+        0x80..=0x9f => out.push('\u{fffd}'),
+        _ => {
+            out.push('^');
+            out.push(char::from_u32(code + 0x40).expect("C0 control maps to ASCII"));
+        }
+    }
 }
 
 /// Draw a horizontal box-drawing line of `width` characters.

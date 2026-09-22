@@ -15,40 +15,18 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, size},
 };
 
-#[expect(dead_code)]
-mod dir_info;
-mod format_tools;
-#[expect(dead_code)]
-mod terminal_tools;
-#[expect(dead_code)]
-mod terminal_ui_tools;
-
-use dir_info::{Entry, ScanOptions, list_basic, list_entries_with_checked};
-use format_tools::format_size;
-use terminal_tools::{
+use editor_91to9::dir_info::{Entry, ScanOptions, list_basic, list_entries_with_checked};
+use editor_91to9::format_tools::{clip, format_size};
+use editor_91to9::terminal_tools::{
     clear, clear_line, enter_alt_screen, goto, hide_cursor, leave_alt_screen, set_title,
     show_cursor,
 };
-use terminal_ui_tools::{bg_color, clear_color, fg_color, put_text};
+use editor_91to9::terminal_ui_tools::{
+    bg_color, clear_color, fg_color, put_text, sanitize_for_terminal,
+};
 
 /// Spinner frames for the "computing" state (no external library needed).
 const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-
-fn clip(text: &str, max: usize) -> String {
-    if max == 0 {
-        return String::new();
-    }
-    let chars: Vec<char> = text.chars().collect();
-    if chars.len() <= max {
-        text.to_owned()
-    } else if max < 3 {
-        chars[chars.len() - max..].iter().collect()
-    } else {
-        let mut out: String = chars[chars.len() - max + 3..].iter().collect();
-        out.insert_str(0, "...");
-        out
-    }
-}
 
 struct View<'a> {
     dir: &'a Path,
@@ -306,7 +284,7 @@ fn sync(
         || screen.dir != dir
     {
         clear(out)?;
-        set_title(out, format!("Explorer — {dir}"))?;
+        set_title(out, sanitize_for_terminal(&format!("Explorer — {dir}")))?;
         render_title(out, width, view.dir, count)?;
         render_help(out, height)?;
         render_status(out, height, &status)?;
@@ -540,32 +518,5 @@ struct DropGuard;
 impl Drop for DropGuard {
     fn drop(&mut self) {
         let _ = disable_raw_mode();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::clip;
-
-    #[test]
-    fn clip_empty_width_is_empty() {
-        assert_eq!(clip("abc", 0), "");
-    }
-
-    #[test]
-    fn clip_short_text_unchanged() {
-        assert_eq!(clip("hello", 10), "hello");
-    }
-
-    #[test]
-    fn clip_very_narrow_keeps_tail() {
-        assert_eq!(clip("abcdefgh", 2), "gh");
-        assert_eq!(clip("abcdefgh", 1), "h");
-    }
-
-    #[test]
-    fn clip_long_ellipsizes_head() {
-        assert_eq!(clip("abcdefghij", 8), "...fghij");
-        assert_eq!(clip("abcdefghij", 5), "...ij");
     }
 }

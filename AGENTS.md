@@ -5,7 +5,7 @@ Instructions for agents working in the `editor` project.
 ## Context
 
 - Read `README.md` for project goals, `docs/INSTALL.md` for build/install steps.
-- Single Rust crate (`editor-91to9`), edition 2024, MSRV 1.85, only dependency is `crossterm`. No `[[bin]]` entry, so the binary is named after the package (`editor-91to9(.exe)`).
+- Single Rust crate (`editor-91to9`) — a library (`src/lib.rs`) plus a binary (`src/main.rs`), edition 2024, MSRV 1.85, only dependency is `crossterm`. The binary is named after the package (`editor-91to9(.exe)`); the lib is `editor_91to9`.
 - Toolchain pinned to `stable` via `rust-toolchain.toml` (with `clippy`/`rustfmt` components) — `cargo` installs it on demand; the MSRV 1.85 in `Cargo.toml` is the minimum floor, not the toolchain in use.
 - Goal is TUI + GUI, licensed GPL-3.0 — contributions must be compatible.
 
@@ -14,7 +14,7 @@ Instructions for agents working in the `editor` project.
 - Build: `cargo build`; release: `cargo build --release`
 - Compile check: `cargo check`
 - Run tests: `cargo test`
-- Run one test: `cargo test dir_info::tests::test_function_name`
+- Run one test: `cargo test --test dir_info test_function_name` (integration test files live in `tests/`)
 - Micro-benchmark (dependency-free): `cargo bench --bench scan`
 - Format: `cargo fmt --check` (check), `cargo fmt` (fix)
 - Lint: `cargo clippy --all-targets -- -D warnings` — `CONTRIBUTING.md` omits `--all-targets`; only the `--all-targets` form matches CI/`release.ps1`.
@@ -26,14 +26,16 @@ Instructions for agents working in the `editor` project.
 
 ## Structure & gotchas
 
-- Modules in `src/` (organized by role, file count not fixed — growing):
-  - `main.rs` — binary entry, explorer TUI; draws the list immediately with `list_basic`, computes sizes on a background thread (`list_entries_with_checked`; the previous scan is cancelled via `AtomicBool` on every navigation, and only the current generation writes its result) then overwrites when done. Keys: `j/k`/arrows, `PgUp`/`PgDn`/`Home`/`End`, `/` to filter, `.`/`h` to toggle hidden files, `Enter`/`Backspace`/`r` to navigate/refresh, `q`/`Esc` to quit. Unit tests for `clip` live here.
-  - `dir_info.rs` — file/folder listing and size stats (folders-first sort; symlinks to dirs count as dirs via `fs::metadata`; unreadable entries are skipped). **Holds the majority of the tests**; they create real temp dirs, no fixtures or external services.
-  - `format_tools.rs` — number/string formatting (`format_size`, autonomous unit pick up to exabyte: B/K/M/G/T/P/E). Unit tests for `format_size` live here.
+- Modules in `src/` (organized by role, file count not fixed — growing), exposed through `lib.rs` as public `mod`s so integration tests and the GUI can reuse them:
+  - `lib.rs` — the library entry: `pub mod dir_info/format_tools/terminal_tools/terminal_ui_tools`. Everything is public API; the binary (`main.rs`) and the tests/bench share it.
+  - `main.rs` — binary entry, explorer TUI; draws the list immediately with `list_basic`, computes sizes on a background thread (`list_entries_with_checked`; the previous scan is cancelled via `AtomicBool` on every navigation, and only the current generation writes its result) then overwrites when done. Keys: `j/k`/arrows, `PgUp`/`PgDn`/`Home`/`End`, `/` to filter, `.`/`h` to toggle hidden files, `Enter`/`Backspace`/`r` to navigate/refresh, `q`/`Esc` to quit. No unit tests — `clip` moved to `format_tools`, covered from `tests/`.
+  - `dir_info.rs` — file/folder listing and size stats (folders-first sort; symlinks to dirs count as dirs via `fs::metadata`; unreadable entries are skipped).
+  - `format_tools.rs` — number/string formatting (`format_size`, autonomous unit pick up to exabyte: B/K/M/G/T/P/E; `clip` for truncation).
   - `terminal_tools.rs` — ANSI helpers.
-  - `terminal_ui_tools.rs` — text/color/box drawing.
+  - `terminal_ui_tools.rs` — text/color/box drawing (incl. `sanitize_for_terminal` at the render boundary).
+- Tests live in `tests/` as integration tests against the public library API — `dir_info.rs`, `format_tools.rs`, `terminal_ui_tools.rs` (one file per module; `dir_info` ones create real temp dirs, no fixtures or external services).
 - `benches/scan.rs` — dependency-free manual micro-benchmark (includes `src/dir_info.rs` and `src/format_tools.rs` via `#[path]`, so it is NOT the crate's private module); run with `cargo bench --bench scan` (extra args: `cargo bench --bench scan -- <scans> <format-reps>`). It also cross-checks `format_size` against `u64::ilog2`, if/else-chain, multiply-loop and — on Windows only — `StrFormatByteSizeW` (decimal base, output not compared).
-- Modules not fully consumed (`dir_info`, `terminal_tools`, `terminal_ui_tools`) carry `#[expect(dead_code)]` at `mod` level in `main.rs`; `format_tools` does not because `format_size` is used directly. If you use the whole public API of a module that carries `#[expect]`, it becomes `unfulfilled_lint_expectations` and clippy `-D warnings` fails — keep or drop the `#[expect]` per module.
+- In `lib.rs` every module is `pub`, so there are no `#[expect(dead_code)]`/`#[expect(unused)]` lint governors on `src/` modules: `main.rs` only imports the items it actually uses and the rest of the public API stays available to tests/GUI/bench.
 - `opencode.json` (and `.opencode/agent/reviewer.md`) configures OpenCode with a **safe-command allowlist** strategy: catch-all `ask` is FIRST, non-state-changing read/check commands (`git status/log/diff/show/fetch`, `cargo check/test/fmt/clippy/build`, `Get-ChildItem`, `Test-Path`, …) and `git add`/`git commit` are auto-run so the agent loop never blocks; risky commands (`git push`, `git reset`, `git checkout/switch`, `git restore`, `git clean/rm`, `git branch -D`, `git tag -d`, `git commit --amend`, `cargo publish`, `cargo run`, `Remove-Item`, `rm`, …) sit at the END → always ask the user. Key order matters: last matching rule wins. CI enforces this invariant with `scripts/check_opencode.ps1` (job `config-check`) — don't break it: `*` must stay first and must not be `allow`. Config is only loaded at startup — after editing `opencode.json` you must restart opencode for changes to take effect.
 - Inside `.opencode/`, only `agent/reviewer.md`, `command/verify.md` and `skill/release/SKILL.md` are tracked; `package*.json` and `node_modules` are plugin scratch, gitignored via `.opencode/.gitignore` (root `.gitignore` only has `/target`) — do not commit them. Use the release skill when the user asks for a release — see `.opencode/skill/release/SKILL.md`.
 - CI (`.github/workflows/ci.yml`): job `config-check` validates opencode.json allowlist, bash/PowerShell script syntax, actionlint, **and lints Markdown with `rumdl`** (`.rumdl.toml`); the compile matrix — `fmt --check`, `clippy --all-targets -- -D warnings`, `test`, `build --release` — runs on Windows, Linux, macOS.

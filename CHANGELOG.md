@@ -36,6 +36,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - `.opencode/agent/reviewer.md`: the reviewer runs the real CI script and reviews the diff against project conventions instead of only reading the code
 - Whole project unified to English: docs, changelog, code comments, crate description, terminal UI messages and bench output are now written in English (previously mixed Vietnamese/English)
 - `main`: the TUI now redraws only the lines that actually changed (title/item-count line, individual list rows, status line) instead of clearing and redrawing the whole screen every frame — the spinner ticks touch only the status line, selection changes touch only the affected rows, and once a background scan finishes only the rows whose displayed sizes changed are updated
+- Restructured into a library + binary: new `src/lib.rs` exposes `dir_info`/`format_tools`/`terminal_tools`/`terminal_ui_tools` as public modules; `main.rs` now imports them from the crate. All tests moved from inline `#[cfg(test)]` blocks into `tests/` as integration tests (`tests/dir_info.rs`, `tests/format_tools.rs`, `tests/terminal_ui_tools.rs`); `clip` moved from `main.rs` to `format_tools` so it stays testable, and the duplicated `format_size_units` test was dropped
 
 ### Fixed
 
@@ -43,6 +44,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - `dir_info`: `collect_basic`/`dir_stats_at` use `fs::metadata(item.path())` (follows symlinks) instead of `DirEntry::metadata()` — on Linux/macOS the old version does not follow symlinks, so the `symlinked_dir_counts_as_dir` test failed on CI (Windows still passed due to different reparse-point semantics)
 - `dir_info`: test `dir_stats_not_a_directory` no longer uses a name that easily collides in CWD — uses a PID-based temp path
 - `release.yml`: fixed the wrong built binary name (`editor` → `editor-91to9`) and the trigger now only fires when a `v*` tag is created instead of on every `main` push
+- Security: terminal escape injection — untrusted text (file names, paths, messages) is sanitized at the render boundary (`put_text` and the window title are the two sinks); C0 controls become caret notation (`cat -v` style), DEL `^?`, C1 controls U+FFFD — a file named e.g. `\x1b]0;…` can no longer inject ANSI/OSC sequences into the terminal
 
 ## [0.1.1] - 2026-09-20
 
