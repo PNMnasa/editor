@@ -168,3 +168,14 @@ fn clip_long_ellipsizes_head() {
     assert_eq!(clip("abcdefghij", 8), "...fghij");
     assert_eq!(clip("abcdefghij", 5), "...ij");
 }
+
+#[test]
+fn clip_counts_display_columns() {
+    assert_eq!(clip("世界", 4), "世界");
+    assert_eq!(clip("世界", 3), "...");
+    assert_eq!(clip("世界", 2), "界");
+    assert_eq!(clip("a世界b", 6), "a世界b");
+    assert_eq!(clip("a世界b", 5), "...b");
+    assert_eq!(clip("a世界b", 4), "...b");
+    assert_eq!(clip("e\u{301}x", 2), "e\u{301}x");
+}
