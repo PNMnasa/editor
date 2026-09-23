@@ -23,7 +23,7 @@ description: Guide for running the editor-91to9 release flow through scripts/rel
 | Pin a specific tag | `-Version v0.2.0` (ps1) / `--version v0.2.0` (sh) |
 | Skip the 4 CI steps | `-SkipChecks` (ps1) / `--skip-checks` (sh) |
 
-The tag auto-bumps `patch` from the last tag when no `-Version` is passed (based on `git describe --tags --abbrev=0`).
+The tag auto-bumps `patch` from the current `Cargo.toml` version when no `-Version` is passed; the bumped version is written back into `Cargo.toml` (and `Cargo.lock` is synced via `cargo check`), so the tag always matches the package version that `release.yml` verifies. When a `-Version` is passed, `Cargo.toml` is synced to it the same way.
 
 ## Without the script
 

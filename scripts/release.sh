@@ -3,11 +3,14 @@
 # Quick release pipeline: analyze changes, auto-commit (grouped), push main, tag.
 # Native bash counterpart of scripts/release.ps1 — same steps. Run on Linux/macOS.
 #
-#   1. Runs the 4 CI steps (bash scripts/ci.sh) - can be skipped.
-#   2. Analyzes pending changes and commits them with Conventional Commits messages,
+#   1. Synchronizes the release version with Cargo.toml (auto patch bump when no version given;
+#      the tag always matches the package version that release.yml verifies) - can be skipped via the
+#      same flags, see scripts/ci.sh.
+#   2. Runs the 4 CI steps (bash scripts/ci.sh) - can be skipped.
+#   3. Analyzes pending changes and commits them with Conventional Commits messages,
 #      splitting into multiple commits per area (ci / docs / src / tooling / other).
-#   3. Pulls origin/main (fast-forward) and pushes main.
-#   4. Creates a tag (auto patch bump from the latest tag when no version given) and pushes it.
+#   4. Pulls origin/main (fast-forward) and pushes main.
+#   5. Creates a tag (auto patch bump from the current Cargo.toml version when no version given) and pushes it.
 #
 # Usage:
 #   bash scripts/release.sh "feat: ..." [--version v0.2.0] [--skip-checks] [--dry-run]
@@ -166,14 +169,74 @@ commit_groups() {
 
 # ---- Main -------------------------------------------------------------------
 
+package_version() {
+    sed -n -E 's/^version = "([^"]+)"/\1/p' "$script_dir/../Cargo.toml" |
+        head -n 1 | tr -d '\r'
+}
+
+set_cargo_version() {
+    local file="$script_dir/../Cargo.toml" v="$1"
+    awk -v v="$v" '
+        BEGIN { done = 0; eol = "\r" }
+        FNR == 1 { eol = (index($0, "\r") > 0 ? "\r" : "") }
+        {
+            if (!done && $0 ~ /^version = "/) {
+                printf "version = \"%s\"%s\n", v, eol
+                done = 1
+            } else {
+                print
+            }
+        }
+    ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+}
+
+bump_patch_version() {
+    local v="$1" maj min pat
+    v="${v#v}"
+    IFS=. read -r maj min pat <<< "$v"
+    maj="${maj:-0}"
+    min="${min:-0}"
+    pat="${pat:-0}"
+    echo "v${maj}.${min}.$((pat + 1))"
+}
+
 # 1. Branch guard
-current="$(git branch --show-current 2>/dev/null)" 
+current="$(git branch --show-current 2>/dev/null)"
 if [ "$current" != "main" ]; then
     echo "error: Must be on branch 'main' (currently: '$current')" >&2
     exit 1
 fi
 
-# 2. CI checks
+# 2. Determine the release version and sync Cargo.toml
+cargo_version="$(package_version)"
+if [ -z "$cargo_version" ]; then
+    echo "error: Could not read the version from Cargo.toml" >&2
+    exit 1
+fi
+if [ -z "$VERSION" ]; then
+    last_tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+    if [ -n "$last_tag" ] && [ "$last_tag" = "v$cargo_version" ]; then
+        VERSION="$(bump_patch_version "$cargo_version")"
+    else
+        VERSION="v$cargo_version"
+    fi
+fi
+case "$VERSION" in
+    v[0-9]*\.[0-9]*\.[0-9]*) ;;
+    *) echo "error: Version must look like 'vX.Y.Z' (got '$VERSION')" >&2; exit 1 ;;
+esac
+target="${VERSION#v}"
+if [ "$target" != "$cargo_version" ]; then
+    echo "==> Setting Cargo.toml version: $cargo_version -> $target"
+    if [ "$DRYRUN" = "0" ]; then
+        set_cargo_version "$target"
+        cargo check || { echo "error: cargo check failed after the version bump (Cargo.lock sync)" >&2; exit 1; }
+    fi
+else
+    echo "==> Cargo.toml already at $cargo_version"
+fi
+
+# 3. CI checks
 if [ "$DRYRUN" = "1" ]; then
     echo "==> [dryrun] would run the 4 CI steps"
 elif [ "$SKIP_CHECKS" = "0" ]; then
@@ -183,7 +246,7 @@ else
     echo "==> Skipping CI checks."
 fi
 
-# 3. Commit pending changes
+# 4. Commit pending changes
 status_out="$(git status --porcelain || true)"
 if [ -n "$status_out" ]; then
     while IFS= read -r line; do
@@ -211,23 +274,14 @@ else
     echo "==> No changes to commit."
 fi
 
-# 4. Pull origin/main (fast-forward) and push
+# 5. Pull origin/main (fast-forward) and push
 echo "==> git pull --ff-only origin main; git push origin main"
 if [ "$DRYRUN" = "0" ]; then
     git pull --ff-only origin main || exit 1
     git push origin main || exit 1
 fi
 
-# 5. Determine version and tag
-if [ -z "$VERSION" ]; then
-    last="$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")"
-    v="${last#v}"
-    IFS=. read -r maj min pat <<< "$v"
-    maj="${maj:-0}"
-    min="${min:-0}"
-    pat="${pat:-0}"
-    VERSION="v${maj}.${min}.$((pat + 1))"
-fi
+# 6. Tag and push
 echo "==> Tagging: $VERSION"
 if [ "$DRYRUN" = "0" ]; then
     git tag "$VERSION" || exit 1
