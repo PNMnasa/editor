@@ -2,7 +2,7 @@
 
 ## System requirements
 
-- Rust toolchain **1.85** or later (compatible with edition 2024) — install via [rustup](https://rustup.rs/)
+- Rust toolchain **1.95** or later (compatible with edition 2024) — install via [rustup](https://rustup.rs/)
 - Operating systems: Windows, Linux, macOS and other terminal-capable platforms
 
 ## Building from source

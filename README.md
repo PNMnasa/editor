@@ -72,6 +72,6 @@ plus an `Up`, `Refresh` and filter toolbar.
 
 ## Tech
 
-- **Rust** — `crossterm` for the TUI; `eframe`/`egui` for the GUI (optional `gui` feature, on by default)
+- **Rust** — two optional dependencies: `crossterm` (TUI) and `eframe 0.36` (GUI) — picked by the `tui`/`gui`/`full` build modes
 - **Own ANSI terminal layer** on top of crossterm for the TUI; pure logic lives in the `editor_91to9` library
 - **Native for any OS**

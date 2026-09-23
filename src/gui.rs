@@ -150,23 +150,23 @@ impl GuiApp {
         if let Some(cmd) = KeyCommand::from_egui(ctx) {
             self.move_selection(cmd, count);
         }
-        if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
-            if let Some(entry) = self.selected_entry(indices) {
-                if entry.is_dir {
-                    let next = self.browser.dir().join(&entry.name);
-                    self.navigate(&next);
-                } else {
-                    self.browser.set_message(format!(
-                        "`{}` is a file — opening is not supported yet",
-                        entry.name
-                    ));
-                }
+        if ctx.input(|i| i.key_pressed(egui::Key::Enter))
+            && let Some(entry) = self.selected_entry(indices)
+        {
+            if entry.is_dir {
+                let next = self.browser.dir().join(&entry.name);
+                self.navigate(&next);
+            } else {
+                self.browser.set_message(format!(
+                    "`{}` is a file — opening is not supported yet",
+                    entry.name
+                ));
             }
         }
-        if ctx.input(|i| i.key_pressed(egui::Key::Backspace)) {
-            if let Some(parent) = self.browser.dir().parent().map(Path::to_path_buf) {
-                self.navigate(&parent);
-            }
+        if ctx.input(|i| i.key_pressed(egui::Key::Backspace))
+            && let Some(parent) = self.browser.dir().parent().map(Path::to_path_buf)
+        {
+            self.navigate(&parent);
         }
         if ctx.input(|i| i.key_pressed(egui::Key::R)) {
             let current = self.browser.dir().to_path_buf();
@@ -177,10 +177,10 @@ impl GuiApp {
     /// Top toolbar: navigation buttons, hidden toggle, item count, filter.
     /// Returns the navigation target requested by a button (if any) and
     /// whether the filter field currently owns keyboard focus.
-    fn show_toolbar(&mut self, ctx: &egui::Context, count: usize) -> (Option<PathBuf>, bool) {
+    fn show_toolbar(&mut self, ui: &mut egui::Ui, count: usize) -> (Option<PathBuf>, bool) {
         let mut target: Option<PathBuf> = None;
         let mut filter_id = None;
-        egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
+        egui::Panel::top("toolbar").show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
                 if ui.button("⬆ Up").clicked() {
                     target = self.browser.dir().parent().map(Path::to_path_buf);
@@ -220,16 +220,16 @@ impl GuiApp {
             });
         });
         let filter_focused =
-            filter_id.is_some_and(|id| ctx.memory(|memory| memory.focused() == Some(id)));
+            filter_id.is_some_and(|id| ui.ctx().memory(|memory| memory.focused() == Some(id)));
         (target, filter_focused)
     }
 
-    fn show_status(&mut self, ctx: &egui::Context) {
+    fn show_status(&mut self, ui: &mut egui::Ui) {
         let (computing, message) = (
             self.browser.is_computing(),
             self.browser.message().to_owned(),
         );
-        egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
+        egui::Panel::bottom("status").show(ui, |ui| {
             ui.horizontal(|ui| {
                 if computing {
                     ui.add(egui::Spinner::new().size(14.0));
@@ -239,7 +239,7 @@ impl GuiApp {
         });
     }
 
-    fn show_list(&mut self, ctx: &egui::Context) {
+    fn show_list(&mut self, ui: &mut egui::Ui) {
         let indices = self.visible();
         let count = indices.len();
         if count == 0 {
@@ -251,7 +251,7 @@ impl GuiApp {
         let message = self.browser.message().to_owned();
         let mut open_dir: Option<PathBuf> = None;
         let scroll_row = self.scroll_to.take();
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             if entries_empty {
                 ui.label(message);
                 return;
@@ -300,23 +300,29 @@ impl GuiApp {
 }
 
 impl eframe::App for GuiApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    /// Non-painting per-frame work, called before `ui` (and also while the
+    /// window is hidden): keep polling the size scan and the repaint loop
+    /// alive until it finishes, since egui only repaints on events.
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.browser.poll();
-        // egui does not redraw on its own once no widget animates; keep
-        // polling while a background scan runs so the enriched list appears
-        // as soon as it finishes.
         if self.browser.is_computing() {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
+    }
+
+    /// Build the whole UI tree inside the root `Ui`: top toolbar panel first,
+    /// bottom status panel, then the `CentralPanel` (the scrollable list).
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
         let indices = self.visible();
         let count = indices.len();
-        let (target, filter_focused) = self.show_toolbar(ctx, count);
-        self.handle_keys(ctx, &indices, filter_focused);
+        let (target, filter_focused) = self.show_toolbar(ui, count);
+        self.handle_keys(&ctx, &indices, filter_focused);
         if let Some(target) = target {
             self.navigate(&target);
         }
-        self.show_status(ctx);
-        self.show_list(ctx);
+        self.show_status(ui);
+        self.show_list(ui);
     }
 }
 

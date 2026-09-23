@@ -297,94 +297,94 @@ pub fn run(start: PathBuf) -> io::Result<()> {
             sync(&mut out, &view, &indices, width, height, &mut screen)?;
             out.flush()?;
 
-            if event::poll(Duration::from_millis(100))? {
-                if let Event::Key(key) = event::read()? {
-                    if key.kind != KeyEventKind::Press {
-                        continue;
-                    }
-                    if filtering {
-                        match key.code {
-                            KeyCode::Char(c) => filter_draft.push(c),
-                            KeyCode::Backspace => {
-                                filter_draft.pop();
-                            }
-                            KeyCode::Enter => {
-                                filter = filter_draft.clone();
-                                filtering = false;
-                                selected = 0;
-                            }
-                            KeyCode::Esc => filtering = false,
-                            _ => {}
-                        }
-                        continue;
-                    }
+            if event::poll(Duration::from_millis(100))?
+                && let Event::Key(key) = event::read()?
+            {
+                if key.kind != KeyEventKind::Press {
+                    continue;
+                }
+                if filtering {
                     match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => break,
-                        KeyCode::Up | KeyCode::Char('k') => {
-                            selected = selected.saturating_sub(1);
+                        KeyCode::Char(c) => filter_draft.push(c),
+                        KeyCode::Backspace => {
+                            filter_draft.pop();
                         }
-                        KeyCode::Down | KeyCode::Char('j') => {
-                            if selected + 1 < count {
-                                selected += 1;
-                            }
-                        }
-                        KeyCode::PageUp => {
-                            selected = selected.saturating_sub(area);
-                        }
-                        KeyCode::PageDown => {
-                            selected = selected.saturating_add(area).min(count.saturating_sub(1));
-                        }
-                        KeyCode::Home => selected = 0,
-                        KeyCode::End => selected = count.saturating_sub(1),
-                        KeyCode::Char('/') => {
-                            filtering = true;
-                            filter_draft = filter.clone();
-                        }
-                        KeyCode::Char('.') | KeyCode::Char('h') => {
-                            show_hidden = !show_hidden;
+                        KeyCode::Enter => {
+                            filter = filter_draft.clone();
+                            filtering = false;
                             selected = 0;
                         }
-                        KeyCode::Char('r') => {
-                            let current = browser.dir().to_path_buf();
-                            if browser.navigate(&current) {
+                        KeyCode::Esc => filtering = false,
+                        _ => {}
+                    }
+                    continue;
+                }
+                match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => break,
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        selected = selected.saturating_sub(1);
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        if selected + 1 < count {
+                            selected += 1;
+                        }
+                    }
+                    KeyCode::PageUp => {
+                        selected = selected.saturating_sub(area);
+                    }
+                    KeyCode::PageDown => {
+                        selected = selected.saturating_add(area).min(count.saturating_sub(1));
+                    }
+                    KeyCode::Home => selected = 0,
+                    KeyCode::End => selected = count.saturating_sub(1),
+                    KeyCode::Char('/') => {
+                        filtering = true;
+                        filter_draft = filter.clone();
+                    }
+                    KeyCode::Char('.') | KeyCode::Char('h') => {
+                        show_hidden = !show_hidden;
+                        selected = 0;
+                    }
+                    KeyCode::Char('r') => {
+                        let current = browser.dir().to_path_buf();
+                        if browser.navigate(&current) {
+                            filter.clear();
+                            selected = 0;
+                            top = 0;
+                        }
+                    }
+                    KeyCode::Enter => {
+                        let Some(&index) = indices.get(selected) else {
+                            continue;
+                        };
+                        let Some(entry) = browser.entries().get(index) else {
+                            continue;
+                        };
+                        if entry.is_dir {
+                            let mut next = browser.dir().to_path_buf();
+                            next.push(&entry.name);
+                            if browser.navigate(&next) {
                                 filter.clear();
                                 selected = 0;
                                 top = 0;
                             }
+                        } else {
+                            browser.set_message(format!(
+                                "`{}` is a file — opening is not supported yet",
+                                entry.name
+                            ));
                         }
-                        KeyCode::Enter => {
-                            let Some(&index) = indices.get(selected) else {
-                                continue;
-                            };
-                            let Some(entry) = browser.entries().get(index) else {
-                                continue;
-                            };
-                            if entry.is_dir {
-                                let mut next = browser.dir().to_path_buf();
-                                next.push(&entry.name);
-                                if browser.navigate(&next) {
-                                    filter.clear();
-                                    selected = 0;
-                                    top = 0;
-                                }
-                            } else {
-                                browser.set_message(format!(
-                                    "`{}` is a file — opening is not supported yet",
-                                    entry.name
-                                ));
-                            }
-                        }
-                        KeyCode::Backspace => {
-                            if let Some(parent) = browser.dir().parent().map(Path::to_path_buf) {
-                                if browser.navigate(&parent) {
-                                    filter.clear();
-                                    selected = 0;
-                                    top = 0;
-                                }
-                            }
-                        }
-                        _ => {}
                     }
+                    KeyCode::Backspace => {
+                        if let Some(parent) = browser.dir().parent().map(Path::to_path_buf)
+                            && browser.navigate(&parent)
+                        {
+                            filter.clear();
+                            selected = 0;
+                            top = 0;
+                        }
+                    }
+                    _ => {}
                 }
             }
         }

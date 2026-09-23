@@ -4,7 +4,7 @@ Thank you for your interest in the project. Before contributing, please read the
 
 ## Environment requirements
 
-- Rust toolchain **1.85** or later — install setup is in [docs/INSTALL.md](docs/INSTALL.md)
+- Rust toolchain **1.95** or later — install setup is in [docs/INSTALL.md](docs/INSTALL.md)
 - Make sure `cargo` and `rustc` work from your terminal
 
 ## Contribution workflow

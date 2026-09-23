@@ -5,8 +5,8 @@ Instructions for agents working in the `editor` project.
 ## Context
 
 - Read `README.md` for project goals, `docs/INSTALL.md` for build/install steps.
-- Single Rust crate (`editor-91to9`) — a library (`src/lib.rs`) plus a binary (`src/main.rs`), edition 2024, MSRV 1.85. Three build modes via Cargo features: `tui` (crossterm), `gui` (`eframe` 0.32), `full` = both (default) — pick one with `--no-default-features --features tui|gui`, or `--features gui` on top of `--features tui` for both. The binary is named after the package (`editor-91to9(.exe)`); the lib is `editor_91to9`.
-- Toolchain pinned to `stable` via `rust-toolchain.toml` (with `clippy`/`rustfmt` components) — `cargo` installs it on demand; the MSRV 1.85 in `Cargo.toml` is the minimum floor, not the toolchain in use.
+- Single Rust crate (`editor-91to9`) — a library (`src/lib.rs`) plus a binary (`src/main.rs`), edition 2024, MSRV 1.85. Three build modes via Cargo features: `tui` (crossterm), `gui` (`eframe` 0.36), `full` = both (default) — pick one with `--no-default-features --features tui|gui`, or `--features gui` on top of `--features tui` for both. The binary is named after the package (`editor-91to9(.exe)`); the lib is `editor_91to9`.
+- Toolchain pinned to `stable` via `rust-toolchain.toml` (with `clippy`/`rustfmt` components) — `cargo` installs it on demand; the MSRV 1.95 in `Cargo.toml` is the minimum floor, not the toolchain in use (it follows `eframe` 0.36, which needs rustc ≥ 1.95).
 - Goal is TUI + GUI, licensed GPL-3.0 — contributions must be compatible.
 
 ## Common commands

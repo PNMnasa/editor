@@ -134,10 +134,10 @@ fn collect_basic(
 ) -> io::Result<Vec<Entry>> {
     let mut entries = Vec::new();
     for item in fs::read_dir(dir)? {
-        if let Some(c) = cancel {
-            if c.load(Ordering::Relaxed) {
-                return Err(cancelled_error());
-            }
+        if let Some(c) = cancel
+            && c.load(Ordering::Relaxed)
+        {
+            return Err(cancelled_error());
         }
         if opts.max_entries != 0 && entries.len() >= opts.max_entries {
             break;
@@ -169,13 +169,12 @@ fn enrich(
 ) -> Vec<Entry> {
     if opts.max_depth > 0 {
         for entry in &mut entries {
-            if entry.is_dir {
-                if let Ok(stats) = dir_stats_at(&dir.join(&entry.name), opts.max_depth - 1, cancel)
-                {
-                    entry.size = stats.total_size;
-                    entry.files = stats.files;
-                    entry.dirs = stats.dirs;
-                }
+            if entry.is_dir
+                && let Ok(stats) = dir_stats_at(&dir.join(&entry.name), opts.max_depth - 1, cancel)
+            {
+                entry.size = stats.total_size;
+                entry.files = stats.files;
+                entry.dirs = stats.dirs;
             }
         }
     }
@@ -194,10 +193,10 @@ fn sort_entries(entries: &mut [Entry]) {
 fn dir_stats_at(dir: &Path, depth: usize, cancel: Option<&AtomicBool>) -> io::Result<DirStats> {
     let mut stats = DirStats::default();
     for item in fs::read_dir(dir)? {
-        if let Some(c) = cancel {
-            if c.load(Ordering::Relaxed) {
-                return Err(cancelled_error());
-            }
+        if let Some(c) = cancel
+            && c.load(Ordering::Relaxed)
+        {
+            return Err(cancelled_error());
         }
         let Ok(item) = item else {
             continue;
@@ -211,12 +210,12 @@ fn dir_stats_at(dir: &Path, depth: usize, cancel: Option<&AtomicBool>) -> io::Re
             continue;
         }
         stats.dirs += 1;
-        if depth > 0 {
-            if let Ok(sub) = dir_stats_at(&item.path(), depth - 1, cancel) {
-                stats.files += sub.files;
-                stats.dirs += sub.dirs;
-                stats.total_size += sub.total_size;
-            }
+        if depth > 0
+            && let Ok(sub) = dir_stats_at(&item.path(), depth - 1, cancel)
+        {
+            stats.files += sub.files;
+            stats.dirs += sub.dirs;
+            stats.total_size += sub.total_size;
         }
     }
     Ok(stats)
