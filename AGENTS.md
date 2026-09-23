@@ -5,7 +5,7 @@ Instructions for agents working in the `editor` project.
 ## Context
 
 - Read `README.md` for project goals, `docs/INSTALL.md` for build/install steps.
-- Single Rust crate (`editor-91to9`) — a library (`src/lib.rs`) plus a binary (`src/main.rs`), edition 2024, MSRV 1.85, only dependency is `crossterm`. The binary is named after the package (`editor-91to9(.exe)`); the lib is `editor_91to9`.
+- Single Rust crate (`editor-91to9`) — a library (`src/lib.rs`) plus a binary (`src/main.rs`), edition 2024, MSRV 1.85. TUI uses `crossterm`; GUI mode (`--gui`) is built on `eframe` 0.32 and lives behind the optional `gui` feature (on by default) — build TUI-only with `--no-default-features`. The binary is named after the package (`editor-91to9(.exe)`); the lib is `editor_91to9`.
 - Toolchain pinned to `stable` via `rust-toolchain.toml` (with `clippy`/`rustfmt` components) — `cargo` installs it on demand; the MSRV 1.85 in `Cargo.toml` is the minimum floor, not the toolchain in use.
 - Goal is TUI + GUI, licensed GPL-3.0 — contributions must be compatible.
 
@@ -27,13 +27,14 @@ Instructions for agents working in the `editor` project.
 ## Structure & gotchas
 
 - Modules in `src/` (organized by role, file count not fixed — growing), exposed through `lib.rs` as public `mod`s so integration tests and the GUI can reuse them:
-  - `lib.rs` — the library entry: `pub mod dir_info/format_tools/terminal_tools/terminal_ui_tools`. Everything is public API; the binary (`main.rs`) and the tests/bench share it.
-  - `main.rs` — binary entry, explorer TUI; draws the list immediately with `list_basic`, computes sizes on a background thread (`list_entries_with_checked`; the previous scan is cancelled via `AtomicBool` on every navigation, and only the current generation writes its result) then overwrites when done. Keys: `j/k`/arrows, `PgUp`/`PgDn`/`Home`/`End`, `/` to filter, `.`/`h` to toggle hidden files, `Enter`/`Backspace`/`r` to navigate/refresh, `q`/`Esc` to quit. No unit tests — `clip` moved to `format_tools`, covered from `tests/`.
+  - `lib.rs` — the library entry: `pub mod dir_info/format_tools/terminal_tools/terminal_ui_tools` (+ `pub mod gui` behind the `gui` feature). Everything is public API; the binary (`main.rs`) and the tests/bench share it.
+  - `main.rs` — binary entry, explorer TUI; dispatches on the `--gui` flag (`run_gui`, feature-gated; prints a hint when built without the `gui` feature). TUI keys: `j/k`/arrows, `PgUp`/`PgDn`/`Home`/`End`, `/` to filter, `.`/`h` to toggle hidden files, `Enter`/`Backspace`/`r` to navigate/refresh, `q`/`Esc` to quit.
   - `dir_info.rs` — file/folder listing and size stats (folders-first sort; symlinks to dirs count as dirs via `fs::metadata`; unreadable entries are skipped).
+  - `gui.rs` — `eframe`/`egui` explorer mirroring the TUI (background scans via `list_entries_with_checked` + cancel/generation, keyboard + mouse navigation, filter, hidden toggle); `KeyCommand`/`step_selection`/`visible_indices` are pure and covered from `tests/`.
   - `format_tools.rs` — number/string formatting (`format_size`, autonomous unit pick up to exabyte: B/K/M/G/T/P/E; `clip` for truncation).
   - `terminal_tools.rs` — ANSI helpers.
   - `terminal_ui_tools.rs` — text/color/box drawing (incl. `sanitize_for_terminal` at the render boundary).
-- Tests live in `tests/` as integration tests against the public library API — `dir_info.rs`, `format_tools.rs`, `terminal_ui_tools.rs` (one file per module; `dir_info` ones create real temp dirs, no fixtures or external services).
+- Tests live in `tests/` as integration tests against the public library API — `dir_info.rs`, `format_tools.rs`, `gui.rs`, `terminal_ui_tools.rs` (one file per module; `dir_info`/`gui` ones create real temp dirs, no fixtures or external services).
 - `benches/scan.rs` — dependency-free manual micro-benchmark (includes `src/dir_info.rs` and `src/format_tools.rs` via `#[path]`, so it is NOT the crate's private module); run with `cargo bench --bench scan` (extra args: `cargo bench --bench scan -- <scans> <format-reps>`). It also cross-checks `format_size` against `u64::ilog2`, if/else-chain, multiply-loop and — on Windows only — `StrFormatByteSizeW` (decimal base, output not compared).
 - In `lib.rs` every module is `pub`, so there are no `#[expect(dead_code)]`/`#[expect(unused)]` lint governors on `src/` modules: `main.rs` only imports the items it actually uses and the rest of the public API stays available to tests/GUI/bench.
 - `opencode.json` (and `.opencode/agent/reviewer.md`) configures OpenCode with a **safe-command allowlist** strategy: catch-all `ask` is FIRST, non-state-changing read/check commands (`git status/log/diff/show/fetch`, `cargo check/test/fmt/clippy/build`, `Get-ChildItem`, `Test-Path`, …) and `git add`/`git commit` are auto-run so the agent loop never blocks; risky commands (`git push`, `git reset`, `git checkout/switch`, `git restore`, `git clean/rm`, `git branch -D`, `git tag -d`, `git commit --amend`, `cargo publish`, `cargo run`, `Remove-Item`, `rm`, …) sit at the END → always ask the user. Key order matters: last matching rule wins. CI enforces this invariant with `scripts/check_opencode.ps1` (job `config-check`) — don't break it: `*` must stay first and must not be `allow`. Config is only loaded at startup — after editing `opencode.json` you must restart opencode for changes to take effect.
@@ -53,7 +54,7 @@ Instructions for agents working in the `editor` project.
 
 ## Quick release
 
-- One command for the whole pipeline: `scripts/release.ps1` (Windows) / `scripts/release.sh` (Linux/macOS) plus a commit message — runs the 4 CI steps, commits cleanly (or auto-groups by area if no message is given), pulls/pushes `main`, creates a tag (auto patch bump if `-Version` is omitted), and pushes the tag (triggers the release workflow).
+- One command for the whole pipeline: `scripts/release.ps1` (Windows) / `scripts/release.sh` (Linux/macOS) plus a commit message — runs the 4 CI steps, commits cleanly (or auto-groups by area if no message is given), pulls/pushes `main`, creates a tag and pushes it (triggers the release workflow). The tag auto-bumps `patch` from the current `Cargo.toml` version when `-Version` is omitted, and the new version is written back to `Cargo.toml`/`Cargo.lock` so the tag always matches the package version that `release.yml` verifies.
 - **Must be on `main`** — the script aborts otherwise.
 - Options: `-SkipChecks` (skip CI steps); `-Version v0.2.0` (pin a specific tag); `-DryRun` (print changes only, no commit).
 - Details: see the `.opencode/skill/release/SKILL.md` skill.

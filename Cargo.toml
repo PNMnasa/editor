@@ -2,14 +2,19 @@
 name = "editor-91to9"
 version = "0.1.1"
 edition = "2024"
-description = "Explorer TUI that lists files/folders with size stats; code and image editing are planned"
+description = "Explorer TUI + GUI that lists files/folders with size stats; code and image editing are planned"
 license = "GPL-3.0"
 authors = ["PNMnasa <maingocphong216@gmail.com>"]
 rust-version = "1.85"
 repository = "https://github.com/PNMnasa/editor"
 
+[features]
+default = ["gui"]
+gui = ["dep:eframe"]
+
 [dependencies]
 crossterm = "0.29.0"
+eframe = { version = "0.32", optional = true }
 
 [[bench]]
 name = "scan"

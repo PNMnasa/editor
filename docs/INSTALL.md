@@ -23,5 +23,12 @@
 3. Run:
 
    ```sh
-   ./target/release/editor-91to9
+   ./target/release/editor-91to9      # explorer TUI
+   ./target/release/editor-91to9 --gui  # explorer GUI
    ```
+
+The GUI (`--gui`) needs a graphical session. It is compiled in by default and
+can be left out with `cargo build --release --no-default-features`. On Linux,
+building/running it uses the same presentation libraries as `eframe`; make sure
+the X11/Wayland development libraries are available (e.g. on Debian/Ubuntu
+`libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev`).

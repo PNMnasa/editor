@@ -9,6 +9,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Added
 
+- GUI mode alongside the TUI: `editor-91to9 --gui` opens an eframe/egui explorer mirroring the TUI (list with background size computation, `j/k`/arrow + mouse navigation, `/` filter, `.`/`h` hidden toggle, `Enter`/double-click to open, `Backspace`/`Up` to go up, `r` to refresh). Built on eframe 0.32 (MSRV 1.85) behind the optional `gui` feature (on by default; TUI-only via `--no-default-features`); new `src/gui.rs` with pure, tested helpers (`visible_indices`, `step_selection`, `KeyCommand`)
 - TUI: quick navigation keys `PgUp`/`PgDn`/`Home`/`End`, filter the list with `/` (Enter applies / Esc cancels) and toggle hidden files with `.` or `h`
 - Spinner for the "computing sizes" state while the background scan is still running
 - `benches/scan.rs`: dependency-free manual micro-benchmark — measures `list_entries_with` and cross-checks `format_size` against `u64::ilog2`, an `if/else` chain, a multiply loop, and (Windows only) `StrFormatByteSizeW` (speed-only; output is not compared because of the decimal base 1000) — (`cargo bench --bench scan`)
@@ -17,6 +18,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 ### Changed
 
 - `dir_info`: the background thread now uses `list_entries_with_checked` with a cancel flag — the previous scan stops early when navigating to another folder, and only the current generation writes its result
+- `clip`: truncates by display columns instead of character count — East-Asian wide/fullwidth glyphs and emoji count as two columns, combining marks as none; wide file names no longer overflow the row layout
+- `main`: the terminal state (raw mode, cursor, alt screen) is restored even when the app panics mid-run — a crash no longer leaves the shell unusable
 - `dir_info`: symlinks to folders count as folders, broken symlinks are skipped (uses `fs::metadata` — follows the symlink)
 - `format_size`: automatically picks the unit up to exabyte (B, K, M, G, T, P, E) via the highest set bit (`leading_zeros`) instead of an `if/else` chain — `u64` cannot represent ZB/YB
 - Whole project unified to English: docs, changelog, code comments, crate description, terminal UI messages and bench output are now written in English (previously mixed Vietnamese/English)

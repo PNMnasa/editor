@@ -332,11 +332,30 @@ fn restore_terminal() {
 }
 
 fn main() -> io::Result<()> {
-    let start = env::args()
-        .nth(1)
+    let args: Vec<String> = env::args().skip(1).collect();
+    let gui = args.iter().any(|arg| arg == "--gui");
+    let start = args
+        .iter()
+        .find(|arg| arg != &"--gui")
         .map(PathBuf::from)
         .filter(|p| p.is_dir())
         .unwrap_or_else(|| env::current_dir().unwrap_or_default());
+
+    if gui {
+        return run_gui(start);
+    }
+
+    {
+        let default_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let mut out = io::stdout();
+            let _ = disable_raw_mode();
+            let _ = show_cursor(&mut out);
+            let _ = leave_alt_screen(&mut out);
+            let _ = out.flush();
+            default_hook(info);
+        }));
+    }
 
     let mut dir = start;
     let mut entries = Vec::new();
@@ -511,6 +530,27 @@ fn main() -> io::Result<()> {
     drop(guard);
     restore_terminal();
     result
+}
+
+/// Launch the GUI mode (`--gui`). Returns `io::Result<()>` so it fits in
+/// `main`'s signature; the GUI's own return type is `eframe::Result`.
+#[cfg(feature = "gui")]
+fn run_gui(start: PathBuf) -> io::Result<()> {
+    match editor_91to9::gui::run(start) {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            eprintln!("GUI error: {err}");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// The `gui` feature is what compiles the `egui`/`eframe` dependency; without
+/// it the flag explains itself instead of failing to launch.
+#[cfg(not(feature = "gui"))]
+fn run_gui(_start: PathBuf) -> io::Result<()> {
+    eprintln!("GUI mode is not available in this build — compile with the `gui` feature");
+    std::process::exit(1);
 }
 
 struct DropGuard;
