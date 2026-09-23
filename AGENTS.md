@@ -27,8 +27,8 @@ Instructions for agents working in the `editor` project.
 ## Structure & gotchas
 
 - Modules in `src/` (organized by role, file count not fixed — growing), exposed through `lib.rs` as public `mod`s so integration tests and the GUI can reuse them:
-  - `lib.rs` — the library entry: `pub mod dir_info/format_tools/terminal_tools/terminal_ui_tools` (+ `pub mod gui` behind the `gui` feature). Everything is public API; the binary (`main.rs`) and the tests/bench share it.
-  - `main.rs` — binary entry, explorer TUI; dispatches on the `--gui` flag (`run_gui`, feature-gated; prints a hint when built without the `gui` feature). TUI keys: `j/k`/arrows, `PgUp`/`PgDn`/`Home`/`End`, `/` to filter, `.`/`h` to toggle hidden files, `Enter`/`Backspace`/`r` to navigate/refresh, `q`/`Esc` to quit.
+  - `lib.rs` — the library entry: `pub mod dir_info/format_tools/terminal_tools/terminal_ui_tools/tui` (+ `pub mod gui` behind the `gui` feature). Everything is public API; the binary (`main.rs`) and the tests/bench share it.
+  - `main.rs` — binary entry, a thin wrapper calling `tui::run(env::args())`; all logic lives in `lib.rs` (`tui` module: the TUI loop itself plus `--gui` dispatch via the feature-gated `run_gui`, which prints a hint when built without the `gui` feature). TUI keys: `j/k`/arrows, `PgUp`/`PgDn`/`Home`/`End`, `/` to filter, `.`/`h` to toggle hidden files, `Enter`/`Backspace`/`r` to navigate/refresh, `q`/`Esc` to quit.
   - `dir_info.rs` — file/folder listing and size stats (folders-first sort; symlinks to dirs count as dirs via `fs::metadata`; unreadable entries are skipped).
   - `gui.rs` — `eframe`/`egui` explorer mirroring the TUI (background scans via `list_entries_with_checked` + cancel/generation, keyboard + mouse navigation, filter, hidden toggle); `KeyCommand`/`step_selection`/`visible_indices` are pure and covered from `tests/`.
   - `format_tools.rs` — number/string formatting (`format_size`, autonomous unit pick up to exabyte: B/K/M/G/T/P/E; `clip` for truncation).

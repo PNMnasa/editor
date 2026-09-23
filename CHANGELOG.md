@@ -17,6 +17,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Changed
 
+- `tui`: the whole explorer moved out of `main` into a new `src/tui.rs` module — `main` is now a no-logic entry point that just calls `editor_91to9::tui::run(env::args())`, which parses the arguments and dispatches between the TUI and the `--gui` mode
 - `dir_info`: the background thread now uses `list_entries_with_checked` with a cancel flag — the previous scan stops early when navigating to another folder, and only the current generation writes its result
 - `clip`: truncates by display columns instead of character count — East-Asian wide/fullwidth glyphs and emoji count as two columns, combining marks as none; wide file names no longer overflow the row layout
 - `main`: the terminal state (raw mode, cursor, alt screen) is restored even when the app panics mid-run — a crash no longer leaves the shell unusable
