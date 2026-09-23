@@ -1,16 +1,11 @@
-//! Explorer TUI: rendering, background size computation, navigation, filtering
-//! and the command-line entry point that dispatches between the TUI and the
-//! optional GUI mode (`--gui`). `main` stays a thin wrapper around `run`.
+//! Explorer TUI: terminal rendering and key handling that drive the shared
+//! `browse::Browser`. Compiled only with the `tui` build-mode feature; the
+//! `cli` module picks between this and the GUI. `main` stays a thin wrapper
+//! around `cli::run`.
 
 use std::{
-    env,
     io::{self, Write},
     path::{Path, PathBuf},
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-    },
-    thread,
     time::Duration,
 };
 
@@ -19,7 +14,8 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, size},
 };
 
-use crate::dir_info::{Entry, ScanOptions, list_basic, list_entries_with_checked};
+use crate::browse::{Browser, visible_indices};
+use crate::dir_info::Entry;
 use crate::format_tools::{clip, format_size};
 use crate::terminal_tools::{
     clear, clear_line, enter_alt_screen, goto, hide_cursor, leave_alt_screen, set_title,
@@ -65,104 +61,6 @@ struct Screen {
     height: u16,
     rows: Vec<Option<Cell>>,
     status: String,
-}
-
-/// Background scan result: the generation when it started, the scanned
-/// directory, and the full stats list (`None` = could not be computed).
-type ScanResult = Option<(usize, PathBuf, Option<Vec<Entry>>)>;
-
-/// Background scan state: the list is drawn immediately from `list_basic`,
-/// the background thread computes `list_entries_with_checked` while checking
-/// the `cancel` flag (each navigation sets the flag of the previous scan so
-/// it stops early) and overwrites the result when done.
-struct NavState {
-    generation: Arc<AtomicUsize>,
-    cancel: Arc<AtomicBool>,
-    result: Arc<Mutex<ScanResult>>,
-    computing: bool,
-}
-
-impl NavState {
-    fn new() -> Self {
-        Self {
-            generation: Arc::new(AtomicUsize::new(0)),
-            cancel: Arc::new(AtomicBool::new(false)),
-            result: Arc::new(Mutex::new(None)),
-            computing: false,
-        }
-    }
-}
-
-/// Draw the list for `target` immediately with `list_basic`, and in parallel
-/// move the (recursive) size computation to a background thread. The previous
-/// scan is cancelled via the `cancel` flag; background results are applied
-/// only while the generation is still valid (only the current scan's thread
-/// writes its result). Returns `true` on a successful quick listing.
-fn navigate(
-    target: &Path,
-    entries: &mut Vec<Entry>,
-    state: &mut NavState,
-    message: &mut String,
-) -> bool {
-    match list_basic(target) {
-        Ok(basic) => {
-            *entries = basic;
-            state.cancel.store(true, Ordering::SeqCst);
-            let cancel = Arc::new(AtomicBool::new(false));
-            state.cancel = cancel.clone();
-            let counter = Arc::clone(&state.generation);
-            let generation = counter.fetch_add(1, Ordering::SeqCst) + 1;
-            let result = Arc::clone(&state.result);
-            let own = target.to_path_buf();
-            let opts = ScanOptions::default();
-            thread::spawn(
-                move || match list_entries_with_checked(&own, &opts, &cancel) {
-                    Ok(enriched) => {
-                        if cancel.load(Ordering::SeqCst)
-                            || generation != counter.load(Ordering::SeqCst)
-                        {
-                            return;
-                        }
-                        if let Ok(mut guard) = result.lock() {
-                            *guard = Some((generation, own, Some(enriched)));
-                        }
-                    }
-                    Err(_) => {
-                        if cancel.load(Ordering::SeqCst)
-                            || generation != counter.load(Ordering::SeqCst)
-                        {
-                            return;
-                        }
-                        if let Ok(mut guard) = result.lock() {
-                            *guard = Some((generation, own, None));
-                        }
-                    }
-                },
-            );
-            state.computing = true;
-            *message = "Computing sizes…".to_owned();
-            true
-        }
-        Err(err) => {
-            *message = format!("Cannot read `{}`: {err}", target.display());
-            false
-        }
-    }
-}
-
-/// Indices of the entries currently visible in `entries` (hidden files
-/// filtered by `show_hidden`, names by `filter`; original sort order kept).
-fn visible_indices(entries: &[Entry], show_hidden: bool, filter: &str) -> Vec<usize> {
-    let needle = filter.to_lowercase();
-    entries
-        .iter()
-        .enumerate()
-        .filter(|(_, entry)| {
-            let shown = show_hidden || !entry.name.starts_with('.');
-            shown && (needle.is_empty() || entry.name.to_lowercase().contains(&needle))
-        })
-        .map(|(index, _)| index)
-        .collect()
 }
 
 /// The clipped directory path shown on the title line.
@@ -333,28 +231,9 @@ fn restore_terminal() {
     let _ = out.flush();
 }
 
-/// Launch the TUI explorer from the command line. `args` is the full
-/// `env::args()` iterator (argument 0, the program name, is skipped).
-pub fn run(args: impl Iterator<Item = String>) -> io::Result<()> {
-    let args: Vec<String> = args.skip(1).collect();
-    let gui = args.iter().any(|arg| arg == "--gui");
-    let start = args
-        .iter()
-        .find(|arg| arg != &"--gui")
-        .map(PathBuf::from)
-        .filter(|p| p.is_dir())
-        .unwrap_or_else(|| env::current_dir().unwrap_or_default());
-
-    if gui {
-        return run_gui(start);
-    }
-
-    run_tui(start)
-}
-
-/// The TUI loop proper: terminal setup, background scans, rendering and key
-/// handling, followed by terminal teardown.
-fn run_tui(start: PathBuf) -> io::Result<()> {
+/// Run the TUI explorer at `start` in raw mode, restoring the terminal on
+/// exit (including panics).
+pub fn run(start: PathBuf) -> io::Result<()> {
     {
         let default_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
@@ -367,20 +246,16 @@ fn run_tui(start: PathBuf) -> io::Result<()> {
         }));
     }
 
-    let mut dir = start;
-    let mut entries = Vec::new();
+    let mut browser = Browser::new();
+    browser.navigate(&start);
     let mut selected = 0usize;
     let mut top = 0usize;
-    let mut message = String::new();
-    let mut nav = NavState::new();
     let mut show_hidden = false;
     let mut filter = String::new();
     let mut filtering = false;
     let mut filter_draft = String::new();
     let mut spinner = 0usize;
     let mut screen = Screen::default();
-
-    navigate(&dir, &mut entries, &mut nav, &mut message);
 
     enable_raw_mode()?;
     let mut out = io::stdout();
@@ -390,32 +265,12 @@ fn run_tui(start: PathBuf) -> io::Result<()> {
     let guard = DropGuard;
     let result = (|| {
         loop {
-            if nav.computing {
-                let ready = nav
-                    .result
-                    .lock()
-                    .map(|mut guard| guard.take())
-                    .unwrap_or(None);
-                if let Some((generation, _path, enriched)) = ready {
-                    if generation == nav.generation.load(Ordering::SeqCst) {
-                        nav.computing = false;
-                        match enriched {
-                            Some(new_entries) => {
-                                entries = new_entries;
-                                message.clear();
-                            }
-                            None => {
-                                message = "Could not compute directory size".to_owned();
-                            }
-                        }
-                    }
-                }
-            }
+            browser.poll();
             let (width, height) = size()?;
             let area = height.saturating_sub(4) as usize;
             spinner = (spinner + 1) % SPINNER.len();
 
-            let indices = visible_indices(&entries, show_hidden, &filter);
+            let indices = visible_indices(browser.entries(), show_hidden, &filter);
             let count = indices.len();
             if count == 0 {
                 selected = 0;
@@ -428,12 +283,12 @@ fn run_tui(start: PathBuf) -> io::Result<()> {
             }
 
             let view = View {
-                dir: &dir,
-                entries: &entries,
+                dir: browser.dir(),
+                entries: browser.entries(),
                 selected,
                 top,
-                message: &message,
-                computing: nav.computing,
+                message: browser.message(),
+                computing: browser.is_computing(),
                 spinner: SPINNER[spinner],
                 filtering,
                 filter: &filter,
@@ -490,7 +345,8 @@ fn run_tui(start: PathBuf) -> io::Result<()> {
                             selected = 0;
                         }
                         KeyCode::Char('r') => {
-                            if navigate(&dir, &mut entries, &mut nav, &mut message) {
+                            let current = browser.dir().to_path_buf();
+                            if browser.navigate(&current) {
                                 filter.clear();
                                 selected = 0;
                                 top = 0;
@@ -500,30 +356,27 @@ fn run_tui(start: PathBuf) -> io::Result<()> {
                             let Some(&index) = indices.get(selected) else {
                                 continue;
                             };
-                            let Some(entry) = entries.get(index) else {
+                            let Some(entry) = browser.entries().get(index) else {
                                 continue;
                             };
                             if entry.is_dir {
-                                let mut next = dir.clone();
+                                let mut next = browser.dir().to_path_buf();
                                 next.push(&entry.name);
-                                if navigate(&next, &mut entries, &mut nav, &mut message) {
-                                    dir = next;
+                                if browser.navigate(&next) {
                                     filter.clear();
                                     selected = 0;
                                     top = 0;
                                 }
                             } else {
-                                message = format!(
+                                browser.set_message(format!(
                                     "`{}` is a file — opening is not supported yet",
                                     entry.name
-                                );
+                                ));
                             }
                         }
                         KeyCode::Backspace => {
-                            if let Some(parent) = dir.parent() {
-                                let parent = parent.to_path_buf();
-                                if navigate(&parent, &mut entries, &mut nav, &mut message) {
-                                    dir = parent;
+                            if let Some(parent) = browser.dir().parent().map(Path::to_path_buf) {
+                                if browser.navigate(&parent) {
                                     filter.clear();
                                     selected = 0;
                                     top = 0;
@@ -540,27 +393,6 @@ fn run_tui(start: PathBuf) -> io::Result<()> {
     drop(guard);
     restore_terminal();
     result
-}
-
-/// Launch the GUI mode (`--gui`). Returns `io::Result<()>` so it fits in
-/// `run`'s signature; the GUI's own return type is `eframe::Result`.
-#[cfg(feature = "gui")]
-fn run_gui(start: PathBuf) -> io::Result<()> {
-    match crate::gui::run(start) {
-        Ok(()) => Ok(()),
-        Err(err) => {
-            eprintln!("GUI error: {err}");
-            std::process::exit(1);
-        }
-    }
-}
-
-/// The `gui` feature is what compiles the `egui`/`eframe` dependency; without
-/// it the flag explains itself instead of failing to launch.
-#[cfg(not(feature = "gui"))]
-fn run_gui(_start: PathBuf) -> io::Result<()> {
-    eprintln!("GUI mode is not available in this build — compile with the `gui` feature");
-    std::process::exit(1);
 }
 
 struct DropGuard;

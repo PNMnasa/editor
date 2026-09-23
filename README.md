@@ -19,6 +19,14 @@ cargo run -- --gui /some/path
 cargo run -- /some/path  # TUI starting at a directory
 ```
 
+Build modes are chosen with Cargo features (`tui`, `gui`, `full` = both):
+
+```sh
+cargo build                                       # full — both frontends (default)
+cargo build --no-default-features --features tui  # TUI only
+cargo build --no-default-features --features gui  # GUI only
+```
+
 TUI keys:
 
 - `q` / `Esc` — quit

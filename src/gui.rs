@@ -1,25 +1,21 @@
 //! GUI mode of `editor-91to9` built on `eframe`/`egui`, mirroring the explorer
-//! TUI: files/folders are listed immediately with their file size, recursive
-//! directory sizes are computed on a background thread (cancelled on every
-//! navigation, only the current generation writes its result) and overwrite
-//! the list when done.
+//! TUI: navigation state and background size scans come from the shared
+//! `browse::Browser` (immediate listing, cancelable computation thread,
+//! generation-checked result), rendered in a native window.
 //!
 //! Enabled by the `gui` feature (default). Launch with `editor-91to9 --gui`.
-//! The pure helpers (`visible_indices`, `step_selection`, `KeyCommand`) are
-//! public so the selection/filter logic stays testable without a display.
+//! The pure helpers (`KeyCommand`, `step_selection`) are public so the
+//! selection logic stays testable without a display.
 
 use std::{
     path::{Path, PathBuf},
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-    },
-    thread,
+    time::Duration,
 };
 
 use eframe::egui;
 
-use crate::dir_info::{Entry, ScanOptions, list_basic, list_entries_with_checked};
+use crate::browse::{Browser, visible_indices};
+use crate::dir_info::Entry;
 use crate::format_tools::{clip, format_size};
 
 /// Folder names are tinted blue, mirroring the TUI's directory color.
@@ -74,49 +70,13 @@ pub fn step_selection(selected: usize, count: usize, area: usize, cmd: KeyComman
     }
 }
 
-/// Indices of the entries currently visible (hidden files filtered by
-/// `show_hidden`, names by the lowercase `filter`; original sort order kept).
-/// Mirrors the TUI's `visible_indices`.
-pub fn visible_indices(entries: &[Entry], show_hidden: bool, filter: &str) -> Vec<usize> {
-    let needle = filter.to_lowercase();
-    entries
-        .iter()
-        .enumerate()
-        .filter(|(_, entry)| {
-            let shown = show_hidden || !entry.name.starts_with('.');
-            shown && (needle.is_empty() || entry.name.to_lowercase().contains(&needle))
-        })
-        .map(|(index, _)| index)
-        .collect()
-}
-
-/// Background scan result: generation, scanned directory, full stats list
-/// (`None` = could not be computed).
-type ScanResult = Option<(usize, PathBuf, Option<Vec<Entry>>)>;
-
-/// Background scan state shared with the computation thread: the list is drawn
-/// immediately from `list_basic`, the thread computes
-/// `list_entries_with_checked` while checking the `cancel` flag (each
-/// navigation sets the flag of the previous scan so it stops early) and only
-/// the current generation overwrites the result.
-#[derive(Default)]
-struct ScanState {
-    generation: Arc<AtomicUsize>,
-    cancel: Arc<AtomicBool>,
-    result: Arc<Mutex<ScanResult>>,
-    computing: bool,
-}
-
-/// The explorer GUI state, mirroring the TUI's view/navigation model.
+/// The explorer GUI state: a shared [`Browser`] plus the egui view state
+/// (selection, filter, scrolling) that the TUI keeps in its loop.
 pub struct GuiApp {
-    ctx: egui::Context,
-    dir: PathBuf,
-    entries: Vec<Entry>,
+    browser: Browser,
     selected: usize,
     show_hidden: bool,
     filter: String,
-    message: String,
-    scan: ScanState,
     /// Row index to bring into view when the selection moved off-screen.
     scroll_to: Option<usize>,
     /// Number of visible list rows, used for PageUp/PageDown.
@@ -126,98 +86,40 @@ pub struct GuiApp {
 }
 
 impl GuiApp {
-    fn new(cc: &eframe::CreationContext<'_>, start_dir: PathBuf) -> Self {
-        let mut app = Self {
-            ctx: cc.egui_ctx.clone(),
-            dir: start_dir,
-            entries: Vec::new(),
+    fn new(start_dir: PathBuf) -> Self {
+        let mut browser = Browser::new();
+        browser.navigate(&start_dir);
+        Self {
+            browser,
             selected: 0,
             show_hidden: false,
             filter: String::new(),
-            message: String::new(),
-            scan: ScanState::default(),
             scroll_to: Some(0),
             page_size: 1,
             focus_filter: false,
-        };
-        let dir = app.dir.clone();
-        app.navigate(&dir);
-        app
+        }
     }
 
-    /// Start (or cancel/restart) the background size scan for `self.dir`.
-    fn start_scan(&mut self) {
-        self.scan.cancel.store(true, Ordering::SeqCst);
-        let cancel = Arc::new(AtomicBool::new(false));
-        self.scan.cancel = Arc::clone(&cancel);
-        let counter = Arc::clone(&self.scan.generation);
-        let generation = counter.fetch_add(1, Ordering::SeqCst) + 1;
-        let result = Arc::clone(&self.scan.result);
-        let own = self.dir.clone();
-        let ctx = self.ctx.clone();
-        let opts = ScanOptions::default();
-        thread::spawn(move || {
-            let outcome = list_entries_with_checked(&own, &opts, &cancel);
-            if cancel.load(Ordering::SeqCst) || generation != counter.load(Ordering::SeqCst) {
-                return;
-            }
-            if let Ok(mut guard) = result.lock() {
-                *guard = Some((generation, own, outcome.ok()));
-            }
-            ctx.request_repaint();
-        });
-        self.scan.computing = true;
-        self.message = "Computing sizes…".to_owned();
-    }
-
-    /// Draw the list for `target` immediately, start the background scan and
-    /// reset selection/filter/scroll like the TUI does on navigation.
+    /// Open `target` in the shared browser and reset the view state like the
+    /// TUI does on navigation.
     fn navigate(&mut self, target: &Path) -> bool {
-        match list_basic(target) {
-            Ok(basic) => {
-                self.dir = target.to_path_buf();
-                self.entries = basic;
-                self.selected = 0;
-                self.filter.clear();
-                self.scroll_to = Some(0);
-                self.start_scan();
-                true
-            }
-            Err(err) => {
-                self.message = format!("Cannot read `{}`: {err}", target.display());
-                false
-            }
-        }
-    }
-
-    /// Apply a finished background scan if it is still the current generation.
-    fn poll_scan(&mut self) {
-        if !self.scan.computing {
-            return;
-        }
-        let ready = self.scan.result.lock().map(|mut guard| guard.take()).ok();
-        if let Some(Some((generation, _path, enriched))) = ready {
-            if generation != self.scan.generation.load(Ordering::SeqCst) {
-                return;
-            }
-            self.scan.computing = false;
-            match enriched {
-                Some(entries) => {
-                    self.entries = entries;
-                    self.message.clear();
-                }
-                None => self.message = "Could not compute directory size".to_owned(),
-            }
+        if self.browser.navigate(target) {
+            self.selected = 0;
+            self.filter.clear();
+            self.scroll_to = Some(0);
+            true
+        } else {
+            false
         }
     }
 
     fn visible(&self) -> Vec<usize> {
-        visible_indices(&self.entries, self.show_hidden, &self.filter)
+        visible_indices(self.browser.entries(), self.show_hidden, &self.filter)
     }
 
     fn selected_entry(&self, indices: &[usize]) -> Option<&Entry> {
         let index = *indices.get(self.selected)?;
-        self.entries.get(index)
+        self.browser.entries().get(index)
     }
 
     fn move_selection(&mut self, cmd: KeyCommand, count: usize) {
@@ -251,21 +153,23 @@ impl GuiApp {
         if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
             if let Some(entry) = self.selected_entry(indices) {
                 if entry.is_dir {
-                    let next = self.dir.join(&entry.name);
+                    let next = self.browser.dir().join(&entry.name);
                     self.navigate(&next);
                 } else {
-                    self.message =
-                        format!("`{}` is a file — opening is not supported yet", entry.name);
+                    self.browser.set_message(format!(
+                        "`{}` is a file — opening is not supported yet",
+                        entry.name
+                    ));
                 }
             }
         }
         if ctx.input(|i| i.key_pressed(egui::Key::Backspace)) {
-            if let Some(parent) = self.dir.parent().map(Path::to_path_buf) {
+            if let Some(parent) = self.browser.dir().parent().map(Path::to_path_buf) {
                 self.navigate(&parent);
             }
         }
         if ctx.input(|i| i.key_pressed(egui::Key::R)) {
-            let current = self.dir.clone();
+            let current = self.browser.dir().to_path_buf();
             self.navigate(&current);
         }
     }
@@ -279,10 +183,10 @@ impl GuiApp {
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.horizontal_wrapped(|ui| {
                 if ui.button("⬆ Up").clicked() {
-                    target = self.dir.parent().map(Path::to_path_buf);
+                    target = self.browser.dir().parent().map(Path::to_path_buf);
                 }
                 if ui.button("↻ Refresh").clicked() {
-                    target = Some(self.dir.clone());
+                    target = Some(self.browser.dir().to_path_buf());
                 }
                 ui.separator();
                 if ui
@@ -321,12 +225,16 @@ impl GuiApp {
     }
 
     fn show_status(&mut self, ctx: &egui::Context) {
+        let (computing, message) = (
+            self.browser.is_computing(),
+            self.browser.message().to_owned(),
+        );
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                if self.scan.computing {
+                if computing {
                     ui.add(egui::Spinner::new().size(14.0));
                 }
-                ui.label(self.message.clone());
+                ui.label(message);
             });
         });
     }
@@ -339,11 +247,13 @@ impl GuiApp {
         } else {
             self.selected = self.selected.min(count - 1);
         }
+        let entries_empty = self.browser.entries().is_empty();
+        let message = self.browser.message().to_owned();
         let mut open_dir: Option<PathBuf> = None;
         let scroll_row = self.scroll_to.take();
         egui::CentralPanel::default().show(ctx, |ui| {
-            if self.entries.is_empty() {
-                ui.label(self.message.clone());
+            if entries_empty {
+                ui.label(message);
                 return;
             }
             let page = (ui.available_height() / 20.0).floor().max(1.0) as usize;
@@ -353,7 +263,7 @@ impl GuiApp {
                 .show(ui, |ui| {
                     for (pos, &entry_index) in indices.iter().enumerate() {
                         let (name, is_dir, size) = {
-                            let entry = &self.entries[entry_index];
+                            let entry = &self.browser.entries()[entry_index];
                             (clip(&entry.name, 200), entry.is_dir, entry.size)
                         };
                         let text = if is_dir {
@@ -368,7 +278,7 @@ impl GuiApp {
                                 self.selected = pos;
                             }
                             if response.double_clicked() && is_dir {
-                                open_dir = Some(self.dir.join(&name));
+                                open_dir = Some(self.browser.dir().join(&name));
                             }
                             if scroll_row == Some(pos) {
                                 response.scroll_to_me(Some(egui::Align::Center));
@@ -391,7 +301,13 @@ impl GuiApp {
 
 impl eframe::App for GuiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.poll_scan();
+        self.browser.poll();
+        // egui does not redraw on its own once no widget animates; keep
+        // polling while a background scan runs so the enriched list appears
+        // as soon as it finishes.
+        if self.browser.is_computing() {
+            ctx.request_repaint_after(Duration::from_millis(100));
+        }
         let indices = self.visible();
         let count = indices.len();
         let (target, filter_focused) = self.show_toolbar(ctx, count);
@@ -415,6 +331,6 @@ pub fn run(start_dir: PathBuf) -> eframe::Result {
     eframe::run_native(
         "Editor (GUI)",
         options,
-        Box::new(move |cc| Ok(Box::new(GuiApp::new(cc, start_dir)))),
+        Box::new(move |_cc| Ok(Box::new(GuiApp::new(start_dir)))),
     )
 }

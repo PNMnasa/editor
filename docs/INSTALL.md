@@ -27,8 +27,11 @@
    ./target/release/editor-91to9 --gui  # explorer GUI
    ```
 
-The GUI (`--gui`) needs a graphical session. It is compiled in by default and
-can be left out with `cargo build --release --no-default-features`. On Linux,
-building/running it uses the same presentation libraries as `eframe`; make sure
-the X11/Wayland development libraries are available (e.g. on Debian/Ubuntu
+The GUI (`--gui`) needs a graphical session. The default mode (`full`) builds
+both frontends; build only one with
+`cargo build --release --no-default-features --features tui` (TUI only) or
+`cargo build --release --no-default-features --features gui` (GUI only). On
+Linux, building/running the GUI uses the same presentation libraries as
+`eframe`; make sure the X11/Wayland development libraries are available (e.g.
+on Debian/Ubuntu
 `libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev`).

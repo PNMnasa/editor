@@ -9,7 +9,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Added
 
-- GUI mode alongside the TUI: `editor-91to9 --gui` opens an eframe/egui explorer mirroring the TUI (list with background size computation, `j/k`/arrow + mouse navigation, `/` filter, `.`/`h` hidden toggle, `Enter`/double-click to open, `Backspace`/`Up` to go up, `r` to refresh). Built on eframe 0.32 (MSRV 1.85) behind the optional `gui` feature (on by default; TUI-only via `--no-default-features`); new `src/gui.rs` with pure, tested helpers (`visible_indices`, `step_selection`, `KeyCommand`)
+- GUI mode alongside the TUI: `editor-91to9 --gui` opens an eframe/egui explorer mirroring the TUI (list with background size computation, `j/k`/arrow + mouse navigation, `/` filter, `.`/`h` hidden toggle, `Enter`/double-click to open, `Backspace`/`Up` to go up, `r` to refresh). Built on eframe 0.32 (MSRV 1.85) behind the `gui` build-mode feature; new `src/gui.rs` with pure, tested helpers (`visible_indices`, `step_selection`, `KeyCommand`)
 - TUI: quick navigation keys `PgUp`/`PgDn`/`Home`/`End`, filter the list with `/` (Enter applies / Esc cancels) and toggle hidden files with `.` or `h`
 - Spinner for the "computing sizes" state while the background scan is still running
 - `benches/scan.rs`: dependency-free manual micro-benchmark — measures `list_entries_with` and cross-checks `format_size` against `u64::ilog2`, an `if/else` chain, a multiply loop, and (Windows only) `StrFormatByteSizeW` (speed-only; output is not compared because of the decimal base 1000) — (`cargo bench --bench scan`)
@@ -17,7 +17,9 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Changed
 
-- `tui`: the whole explorer moved out of `main` into a new `src/tui.rs` module — `main` is now a no-logic entry point that just calls `editor_91to9::tui::run(env::args())`, which parses the arguments and dispatches between the TUI and the `--gui` mode
+- `browse`: new `src/browse.rs` module — one shared navigation core for both front ends (`Browser`: immediate listing + cancelable background size scan + `poll` + messages, plus `visible_indices`); the TUI and the GUI now share a single startup/navigation implementation instead of each keeping its own copy
+- Build modes through Cargo features: `tui` (crossterm), `gui` (eframe), `full` = both (default); pick one with `--no-default-features --features tui|gui`. `crossterm` is now optional, so a GUI-only build no longer pulls it in. The `--gui` dispatch moved out of `tui.rs` into an always-compiled `src/cli.rs` — `cli::run` resolves the start directory and picks the frontend for the current build mode
+- `tui`: the whole explorer moved out of `main` into `src/tui.rs` — `main` is now a no-logic entry point that just calls `editor_91to9::cli::run(env::args())`, which dispatches between the TUI and the `--gui` mode
 - `dir_info`: the background thread now uses `list_entries_with_checked` with a cancel flag — the previous scan stops early when navigating to another folder, and only the current generation writes its result
 - `clip`: truncates by display columns instead of character count — East-Asian wide/fullwidth glyphs and emoji count as two columns, combining marks as none; wide file names no longer overflow the row layout
 - `main`: the terminal state (raw mode, cursor, alt screen) is restored even when the app panics mid-run — a crash no longer leaves the shell unusable
